@@ -35,6 +35,7 @@ This repo documents a distraction-blocking setup built around a `GL.iNet GL-MT30
 
 ## Docs
 
+- `docs/router-install.md`
 - `docs/technical-architecture.md`
 - `docs/router-enforcement-design.md`
 - `docs/blocklist-maintenance-design.md`
