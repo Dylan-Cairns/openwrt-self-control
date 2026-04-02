@@ -3,6 +3,7 @@
 local CONFIG_PATH = "/etc/AdGuardHome/config.yaml"
 local SCRIPT_NAME = os.getenv("SCRIPT_NAME") or "/cgi-bin/focus"
 local RESTART_COMMAND = "/etc/init.d/adguardhome restart >/tmp/focus-adguard-restart.log 2>&1"
+local normalize_rules
 
 local function write(...)
   for i = 1, select("#", ...) do
@@ -112,7 +113,8 @@ end
 local function yaml_unquote(value)
   local text = trim(value)
   if text:sub(1, 1) == "'" and text:sub(-1) == "'" then
-    return text:sub(2, -2):gsub("''", "'")
+    local unquoted = text:sub(2, -2):gsub("''", "'")
+    return unquoted
   end
 
   if text:sub(1, 1) == '"' and text:sub(-1) == '"' then
@@ -137,12 +139,12 @@ local function parse_config(content)
   local user_rules_end = nil
 
   for i, line in ipairs(lines) do
-    local enabled_value = line:match("^protection_enabled:%s*(%S+)%s*$")
+    local enabled_value = line:match("^%s*protection_enabled:%s*(%S+)%s*$")
     if enabled_value ~= nil then
       protection_enabled = (enabled_value == "true")
     end
 
-    if line:match("^user_rules:%s*$") then
+    if user_rules_start == nil and line:match("^user_rules:%s*$") then
       user_rules_start = i
       user_rules_end = #lines
 
@@ -159,14 +161,11 @@ local function parse_config(content)
           table.insert(rules, yaml_unquote(item))
         end
       end
-
-      break
     end
 
-    if line:match("^user_rules:%s*%[%s*%]%s*$") then
+    if user_rules_start == nil and line:match("^user_rules:%s*%[%s*%]%s*$") then
       user_rules_start = i
       user_rules_end = i
-      break
     end
   end
 
@@ -223,6 +222,7 @@ local function load_state()
   end
 
   local parsed = parse_config(content)
+  parsed.rules = normalize_rules(parsed.rules)
   parsed.content = content
   return parsed, nil
 end
@@ -266,20 +266,26 @@ local function is_ipv4(value)
 end
 
 local function is_valid_host(host)
-  if host == "" or #host > 253 or not host:find("%.", 1, true) then
+  if type(host) ~= "string" or host == "" or #host > 253 or not host:find(".", 1, true) then
     return false
   end
 
-  if host:find("%.%.", 1, true) then
+  if host:sub(1, 1) == "." or host:sub(-1) == "." then
     return false
   end
 
-  for label in host:gmatch("[^.]+") do
+  if host:find("..", 1, true) then
+    return false
+  end
+
+  if not host:match("^[a-z0-9%.%-]+$") then
+    return false
+  end
+
+  local label_count = 0
+  for label in host:gmatch("([^.]+)") do
+    label_count = label_count + 1
     if #label > 63 then
-      return false
-    end
-
-    if not label:match("^[a-z0-9-]+$") then
       return false
     end
 
@@ -288,7 +294,7 @@ local function is_valid_host(host)
     end
   end
 
-  return true
+  return label_count >= 2
 end
 
 local function normalize_host_input(value)
@@ -350,6 +356,22 @@ local function classify_rule_for_host(rule, host)
   end
 
   return "block"
+end
+
+normalize_rules = function(rules)
+  local seen = {}
+  local cleaned = {}
+
+  for _, rule in ipairs(rules or {}) do
+    local text = trim(rule)
+    if text ~= "" and not seen[text] then
+      seen[text] = true
+      table.insert(cleaned, text)
+    end
+  end
+
+  table.sort(cleaned)
+  return cleaned
 end
 
 local function render_page(state)
@@ -454,6 +476,7 @@ local function handle_post()
   end
 
   table.insert(rules, new_rule)
+  rules = normalize_rules(rules)
 
   local updated, update_error = save_rules(state, rules)
   if not updated then
