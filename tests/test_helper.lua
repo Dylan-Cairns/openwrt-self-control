@@ -59,7 +59,7 @@ function M.make_temp_dir()
   temp_counter = temp_counter + 1
   local path = M.join_path(
     base,
-    "focus-tests-" .. tostring(os.time()) .. "-" .. tostring(temp_counter) .. "-" .. tostring(math.random(100000, 999999))
+    "quietwrt-tests-" .. tostring(os.time()) .. "-" .. tostring(temp_counter) .. "-" .. tostring(math.random(100000, 999999))
   )
   assert(M.create_dir(path), "failed to create temp dir " .. path)
   return path
@@ -89,7 +89,7 @@ function M.make_context(overrides)
   overrides = overrides or {}
 
   local root = M.make_temp_dir()
-  local data_dir = M.join_path(root, "focus-data")
+  local data_dir = M.join_path(root, "quietwrt-data")
   local paths = {
     config_path = M.join_path(root, "AdGuardHome.yaml"),
     data_dir = data_dir,
@@ -98,7 +98,7 @@ function M.make_context(overrides)
     passthrough_rules_path = M.join_path(data_dir, "passthrough-rules.txt"),
     restart_adguard_command = "restart-adguard",
     crontab_path = M.join_path(root, "root.crontab"),
-    focusctl_path = "/usr/bin/focusctl",
+    quietwrtctl_path = "/usr/bin/quietwrtctl",
     restart_cron_command = "restart-cron",
   }
 

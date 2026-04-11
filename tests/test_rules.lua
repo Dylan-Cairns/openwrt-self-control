@@ -1,6 +1,6 @@
 local helper = require("test_helper")
 local lu = require("luaunit")
-local rules = require("focuslib.rules")
+local rules = require("quietwrt.rules")
 
 TestRules = {}
 
@@ -57,4 +57,3 @@ function TestRules:test_partition_user_rules_preserves_passthrough()
     "# comment",
   })
 end
-

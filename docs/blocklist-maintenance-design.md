@@ -45,7 +45,7 @@ The system should reject bad input instead of guessing.
 ## Flow
 
 1. Update one of the local files.
-2. Run `focusctl sync`.
+2. Run `quietwrtctl sync`.
 3. Keep the current config if validation, write, or restart fails.
 
 ## Notes

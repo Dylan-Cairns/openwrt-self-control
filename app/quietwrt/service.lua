@@ -1,7 +1,7 @@
-local adguard = require("focuslib.adguard")
-local rules = require("focuslib.rules")
-local schedule = require("focuslib.schedule")
-local util = require("focuslib.util")
+local adguard = require("quietwrt.adguard")
+local rules = require("quietwrt.rules")
+local schedule = require("quietwrt.schedule")
+local util = require("quietwrt.util")
 
 local M = {}
 
@@ -10,17 +10,17 @@ local function default_ensure_dir(path)
 end
 
 local function default_paths()
-  local data_dir = "/etc/focus"
+  local data_dir = "/etc/quietwrt"
   return {
     config_path = "/etc/AdGuardHome/config.yaml",
     data_dir = data_dir,
     always_list_path = data_dir .. "/always-blocked.txt",
     workday_list_path = data_dir .. "/workday-blocked.txt",
     passthrough_rules_path = data_dir .. "/passthrough-rules.txt",
-    restart_adguard_command = "/etc/init.d/adguardhome restart >/tmp/focus-adguard-restart.log 2>&1",
+    restart_adguard_command = "/etc/init.d/adguardhome restart >/tmp/quietwrt-adguard-restart.log 2>&1",
     crontab_path = "/etc/crontabs/root",
-    focusctl_path = "/usr/bin/focusctl",
-    restart_cron_command = "/etc/init.d/cron restart >/tmp/focus-cron-restart.log 2>&1",
+    quietwrtctl_path = "/usr/bin/quietwrtctl",
+    restart_cron_command = "/etc/init.d/cron restart >/tmp/quietwrt-cron-restart.log 2>&1",
   }
 end
 
@@ -182,17 +182,17 @@ end
 local function apply_curfew_state(env, enabled)
   local value = enabled and "1" or "0"
   local commands = {
-    "uci -q delete firewall.focus_curfew",
-    "uci set firewall.focus_curfew='rule'",
-    "uci set firewall.focus_curfew.name='Focus-Internet-Curfew'",
-    "uci set firewall.focus_curfew.family='ipv4'",
-    "uci set firewall.focus_curfew.src='lan'",
-    "uci set firewall.focus_curfew.dest='wan'",
-    "uci set firewall.focus_curfew.proto='all'",
-    "uci set firewall.focus_curfew.target='REJECT'",
-    "uci set firewall.focus_curfew.enabled='" .. value .. "'",
+    "uci -q delete firewall.quietwrt_curfew",
+    "uci set firewall.quietwrt_curfew='rule'",
+    "uci set firewall.quietwrt_curfew.name='QuietWrt-Internet-Curfew'",
+    "uci set firewall.quietwrt_curfew.family='ipv4'",
+    "uci set firewall.quietwrt_curfew.src='lan'",
+    "uci set firewall.quietwrt_curfew.dest='wan'",
+    "uci set firewall.quietwrt_curfew.proto='all'",
+    "uci set firewall.quietwrt_curfew.target='REJECT'",
+    "uci set firewall.quietwrt_curfew.enabled='" .. value .. "'",
     "uci commit firewall",
-    "service firewall restart >/tmp/focus-firewall-restart.log 2>&1",
+    "service firewall restart >/tmp/quietwrt-firewall-restart.log 2>&1",
   }
 
   local ok, failed_command = run_commands(env, commands)
@@ -205,11 +205,11 @@ end
 
 local function build_cron_block(paths)
   return table.concat({
-    "# BEGIN focus schedule",
-    "0 4 * * * " .. paths.focusctl_path .. " sync",
-    "30 16 * * * " .. paths.focusctl_path .. " sync",
-    "30 18 * * * " .. paths.focusctl_path .. " sync",
-    "# END focus schedule",
+    "# BEGIN quietwrt schedule",
+    "0 4 * * * " .. paths.quietwrtctl_path .. " sync",
+    "30 16 * * * " .. paths.quietwrtctl_path .. " sync",
+    "30 18 * * * " .. paths.quietwrtctl_path .. " sync",
+    "# END quietwrt schedule",
     "",
   }, "\n")
 end
@@ -217,8 +217,8 @@ end
 local function install_schedule(env, paths)
   local original = env.read_file(paths.crontab_path) or ""
   local without_existing = original
-    :gsub("\n?# BEGIN focus schedule\n.-\n# END focus schedule", "")
-    :gsub("^# BEGIN focus schedule\n.-\n# END focus schedule\n?", "")
+    :gsub("\n?# BEGIN quietwrt schedule\n.-\n# END quietwrt schedule", "")
+    :gsub("^# BEGIN quietwrt schedule\n.-\n# END quietwrt schedule\n?", "")
 
   without_existing = without_existing:gsub("%s+$", "")
 

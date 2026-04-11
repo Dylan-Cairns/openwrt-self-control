@@ -37,7 +37,7 @@ The router should enforce:
 - LAN clients can query the router for DNS
 - direct WAN `TCP/UDP 53` is redirected or blocked
 - direct WAN `TCP/UDP 853` is blocked
-- a managed `LAN -> WAN` reject rule named `Focus-Internet-Curfew`
+- a managed `LAN -> WAN` reject rule named `QuietWrt-Internet-Curfew`
 
 The curfew rule is:
 
@@ -48,7 +48,7 @@ This blocks internet access while still allowing access to the router itself.
 
 ## Schedule
 
-`cron` runs `focusctl sync` at:
+`cron` runs `quietwrtctl sync` at:
 
 - `04:00`
 - `16:30`
@@ -62,10 +62,10 @@ Each run:
 
 ## Boot And Failure Behavior
 
-- canonical blocklist files live in `/etc/focus/`
+- canonical blocklist files live in `/etc/quietwrt/`
 - AdGuard config changes are written atomically
 - if AdGuard restart fails, the previous config is restored
-- running `focusctl install` re-installs the schedule and applies the current mode
+- running `quietwrtctl install` re-installs the schedule and applies the current mode
 
 ## Acceptance Criteria
 

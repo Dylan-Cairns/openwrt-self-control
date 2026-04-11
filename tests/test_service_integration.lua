@@ -1,6 +1,6 @@
 local helper = require("test_helper")
 local lu = require("luaunit")
-local service = require("focuslib.service")
+local service = require("quietwrt.service")
 
 TestServiceIntegration = {}
 
@@ -101,10 +101,10 @@ function TestServiceIntegration:test_install_writes_cron_block_and_enables_curfe
   local ok, result = service.install(context)
   lu.assertTrue(ok)
   lu.assertEquals(result.mode.code, "internet_off")
-  lu.assertStrContains(helper.read_file(fixture.paths.crontab_path), "30 16 * * * /usr/bin/focusctl sync")
+  lu.assertStrContains(helper.read_file(fixture.paths.crontab_path), "30 16 * * * /usr/bin/quietwrtctl sync")
 
   local joined = table.concat(fixture.commands, "\n")
   lu.assertStrContains(joined, "restart-cron")
-  lu.assertStrContains(joined, "uci set firewall.focus_curfew.enabled='1'")
+  lu.assertStrContains(joined, "uci set firewall.quietwrt_curfew.enabled='1'")
   fixture.cleanup()
 end

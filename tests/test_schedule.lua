@@ -1,6 +1,6 @@
 local helper = require("test_helper")
 local lu = require("luaunit")
-local schedule = require("focuslib.schedule")
+local schedule = require("quietwrt.schedule")
 
 TestSchedule = {}
 
@@ -19,4 +19,3 @@ end
 function TestSchedule:test_six_thirty_pm_shuts_off_internet()
   lu.assertEquals(schedule.mode_at({ hour = 18, min = 30 }).code, "internet_off")
 end
-

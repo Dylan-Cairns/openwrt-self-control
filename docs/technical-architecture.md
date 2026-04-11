@@ -14,7 +14,7 @@ Everything runs on the `GL.iNet GL-MT3000`.
 
 ### Policy Manager
 
-The policy manager lives in shared Lua modules plus the `focusctl` CLI entrypoint.
+The policy manager lives in shared Lua modules plus the `quietwrtctl` CLI entrypoint.
 
 It:
 
@@ -50,9 +50,9 @@ It:
 
 The router stores:
 
-- `/etc/focus/always-blocked.txt`
-- `/etc/focus/workday-blocked.txt`
-- `/etc/focus/passthrough-rules.txt`
+- `/etc/quietwrt/always-blocked.txt`
+- `/etc/quietwrt/workday-blocked.txt`
+- `/etc/quietwrt/passthrough-rules.txt`
 - `/etc/AdGuardHome/config.yaml`
 - `/etc/crontabs/root`
 
@@ -71,8 +71,8 @@ Weekend behavior currently matches weekdays.
 
 ### Manual Edit
 
-1. Update one of the files in `/etc/focus/`.
-2. Run `focusctl sync`.
+1. Update one of the files in `/etc/quietwrt/`.
+2. Run `quietwrtctl sync`.
 3. Keep the previous config if apply or restart fails.
 
 ### App Addition
@@ -85,7 +85,7 @@ Weekend behavior currently matches weekdays.
 
 ### Scheduled Sync
 
-1. `cron` runs `focusctl sync`.
+1. `cron` runs `quietwrtctl sync`.
 2. The policy manager computes the current mode from router local time.
 3. It writes the correct AdGuard rule set.
 4. It enables or disables the firewall curfew rule as needed.

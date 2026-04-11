@@ -1,4 +1,4 @@
-local util = require("focuslib.util")
+local util = require("quietwrt.util")
 
 local M = {}
 

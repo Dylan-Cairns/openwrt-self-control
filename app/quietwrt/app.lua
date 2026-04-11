@@ -1,6 +1,6 @@
-local service = require("focuslib.service")
-local util = require("focuslib.util")
-local view = require("focuslib.view")
+local service = require("quietwrt.service")
+local util = require("quietwrt.util")
+local view = require("quietwrt.view")
 
 local M = {}
 
@@ -13,7 +13,7 @@ end
 
 function M.run_cgi(options)
   local context = service.new_context(options)
-  local script_name = os.getenv("SCRIPT_NAME") or "/cgi-bin/focus"
+  local script_name = os.getenv("SCRIPT_NAME") or "/cgi-bin/quietwrt"
   local method = os.getenv("REQUEST_METHOD") or "GET"
 
   if method == "POST" then
@@ -42,7 +42,7 @@ function M.run_cgi(options)
     protection_enabled = state and state.protection_enabled or nil,
     current_mode = state and state.current_mode or {
       label = "Unknown",
-      description = "Could not load the current focus mode.",
+      description = "Could not load the current QuietWrt mode.",
     },
     always_hosts = state and state.always_hosts or {},
     workday_hosts = state and state.workday_hosts or {},
@@ -53,7 +53,7 @@ end
 
 local function print_usage()
   io.write([[
-Usage: focusctl <command>
+Usage: quietwrtctl <command>
 
 Commands:
   install   Bootstrap list files, install cron sync, and apply the current mode.
@@ -73,7 +73,7 @@ function M.run_cli(argv, options)
       io.stderr:write(result, "\n")
       return 1
     end
-    io.write("Installed focus schedule. Current mode: ", result.mode.label, "\n")
+    io.write("Installed QuietWrt schedule. Current mode: ", result.mode.label, "\n")
     return 0
   end
 

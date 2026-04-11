@@ -1,4 +1,4 @@
-local util = require("focuslib.util")
+local util = require("quietwrt.util")
 
 local M = {}
 
@@ -56,7 +56,7 @@ function M.render_page(script_name, state)
   write("<head>\n")
   write("<meta charset=\"utf-8\">\n")
   write("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n")
-  write("<title>Focus Blocklists</title>\n")
+  write("<title>QuietWrt Blocklists</title>\n")
   write("<style>\n")
   write(":root{--bg:#f6f3ec;--panel:#ffffff;--ink:#111;--muted:#5a5348;--edge:#d8d0c2;--field:#faf8f3;--brand:#1f5b48;}")
   write("body{font-family:sans-serif;max-width:1120px;margin:2rem auto;padding:0 1rem 2rem;color:var(--ink);background:var(--bg);}")
@@ -79,7 +79,7 @@ function M.render_page(script_name, state)
   write("</style>\n")
   write("</head>\n")
   write("<body>\n")
-  write("<h1>Focus Blocklists</h1>\n")
+  write("<h1>QuietWrt Blocklists</h1>\n")
   write("<p>Always blocked entries stay active whenever internet is available. Workday blocked entries are active from <code>04:00</code> until <code>16:30</code>. Internet access is fully blocked from <code>18:30</code> until <code>04:00</code>.</p>\n")
   write("<div class=\"panel\">\n")
   write("<div><strong>Mode:</strong> ", util.html_escape(state.current_mode.label), "</div>\n")

@@ -1,6 +1,6 @@
-# MT3000 Focus Router
+# QuietWrt
 
-This repo documents a distraction-blocking setup built around a `GL.iNet GL-MT3000`.
+This repo documents `QuietWrt`, a distraction-blocking setup built around a `GL.iNet GL-MT3000`.
 
 ## Goal
 

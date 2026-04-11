@@ -100,40 +100,40 @@ uci commit firewall
 service firewall restart
 ```
 
-## 4. Deploy The Focus App
+## 4. Deploy The QuietWrt App
 
 Copy the CGI entrypoint:
 
 ```sh
-scp -O app/focus.cgi root@192.168.8.1:/www/cgi-bin/focus
-ssh root@192.168.8.1 "chmod 755 /www/cgi-bin/focus"
+scp -O app/quietwrt.cgi root@192.168.8.1:/www/cgi-bin/quietwrt
+ssh root@192.168.8.1 "chmod 755 /www/cgi-bin/quietwrt"
 ```
 
 Copy the CLI entrypoint:
 
 ```sh
-scp -O app/focusctl.lua root@192.168.8.1:/usr/bin/focusctl
-ssh root@192.168.8.1 "chmod 755 /usr/bin/focusctl"
+scp -O app/quietwrtctl.lua root@192.168.8.1:/usr/bin/quietwrtctl
+ssh root@192.168.8.1 "chmod 755 /usr/bin/quietwrtctl"
 ```
 
 Copy the shared Lua modules:
 
 ```sh
-ssh root@192.168.8.1 "mkdir -p /usr/lib/lua/focuslib"
-scp -O app/focuslib/*.lua root@192.168.8.1:/usr/lib/lua/focuslib/
+ssh root@192.168.8.1 "mkdir -p /usr/lib/lua/quietwrt"
+scp -O app/quietwrt/*.lua root@192.168.8.1:/usr/lib/lua/quietwrt/
 ```
 
-Install the focus schedule and seed the canonical list files:
+Install the QuietWrt schedule and seed the canonical list files:
 
 ```sh
-ssh root@192.168.8.1 "/usr/bin/focusctl install"
+ssh root@192.168.8.1 "/usr/bin/quietwrtctl install"
 ```
 
 This creates and maintains:
 
-- `/etc/focus/always-blocked.txt`
-- `/etc/focus/workday-blocked.txt`
-- `/etc/focus/passthrough-rules.txt`
+- `/etc/quietwrt/always-blocked.txt`
+- `/etc/quietwrt/workday-blocked.txt`
+- `/etc/quietwrt/passthrough-rules.txt`
 
 and installs `cron` sync points at:
 
@@ -145,7 +145,7 @@ and installs `cron` sync points at:
 
 Open:
 
-- `https://192.168.8.1:8443/cgi-bin/focus`
+- `https://192.168.8.1:8443/cgi-bin/quietwrt`
 
 The page should:
 
@@ -162,7 +162,7 @@ Check these from a client connected to the MT3000:
 2. A site added to `Workday blocked` is blocked at `10:00`.
 3. A `Workday blocked` site is no longer blocked between `16:30` and `18:30`.
 4. Internet access is fully unavailable between `18:30` and `04:00`.
-5. Router-local access to `https://<router-ip>:8443/cgi-bin/focus` still works during the curfew window.
+5. Router-local access to `https://<router-ip>:8443/cgi-bin/quietwrt` still works during the curfew window.
 6. A client manually pointed at `8.8.8.8` still gets filtered.
 7. `DNS over TLS` on port `853` no longer works.
 
@@ -171,13 +171,13 @@ Check these from a client connected to the MT3000:
 Show current status:
 
 ```sh
-/usr/bin/focusctl status
+/usr/bin/quietwrtctl status
 ```
 
 Force an immediate resync:
 
 ```sh
-/usr/bin/focusctl sync
+/usr/bin/quietwrtctl sync
 ```
 
 Restore the AdGuard config backup:
@@ -190,7 +190,7 @@ cp /etc/AdGuardHome/config.yaml.bak /etc/AdGuardHome/config.yaml
 Temporarily disable the curfew rule by hand:
 
 ```sh
-uci set firewall.focus_curfew.enabled='0'
+uci set firewall.quietwrt_curfew.enabled='0'
 uci commit firewall
 service firewall restart
 ```
@@ -198,5 +198,5 @@ service firewall restart
 Show the AdGuard restart log:
 
 ```sh
-cat /tmp/focus-adguard-restart.log
+cat /tmp/quietwrt-adguard-restart.log
 ```

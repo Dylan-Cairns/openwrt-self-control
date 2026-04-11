@@ -2,7 +2,7 @@
 
 ## Summary
 
-The local management app is one small LAN-only page on the router.
+The QuietWrt local management app is one small LAN-only page on the router.
 
 It does three things:
 
