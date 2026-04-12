@@ -16,6 +16,7 @@ package.path = table.concat(package_parts, ";")
 
 local sep = package.config:sub(1, 1)
 local temp_counter = 0
+local suite_state = nil
 
 local function shell_escape(path)
   if sep == "\\" then
@@ -34,11 +35,34 @@ function M.join_path(...)
 end
 
 function M.create_dir(path)
+  return M.create_dirs({ path })
+end
+
+function M.create_dirs(paths)
+  local normalized = {}
+  for _, path in ipairs(paths or {}) do
+    if path ~= nil and path ~= "" then
+      table.insert(normalized, tostring(path))
+    end
+  end
+
+  if #normalized == 0 then
+    return true
+  end
+
   local command
   if sep == "\\" then
-    command = "powershell -NoProfile -Command \"New-Item -ItemType Directory -Force -Path " .. powershell_single_quote(path) .. " | Out-Null\""
+    local quoted = {}
+    for _, path in ipairs(normalized) do
+      table.insert(quoted, powershell_single_quote(path))
+    end
+    command = "powershell -NoProfile -Command \"$paths = @(" .. table.concat(quoted, ", ") .. "); foreach ($path in $paths) { New-Item -ItemType Directory -Force -Path $path | Out-Null }\""
   else
-    command = "mkdir -p " .. shell_escape(path)
+    local quoted = {}
+    for _, path in ipairs(normalized) do
+      table.insert(quoted, shell_escape(path))
+    end
+    command = "mkdir -p " .. table.concat(quoted, " ")
   end
   local result = os.execute(command)
   return result == true or result == 0
@@ -54,15 +78,54 @@ function M.remove_tree(path)
   os.execute(command)
 end
 
-function M.make_temp_dir()
+function M.make_temp_path(prefix)
   local base = os.getenv("TEMP") or os.getenv("TMP") or "."
   temp_counter = temp_counter + 1
-  local path = M.join_path(
+  return M.join_path(
     base,
-    "quietwrt-tests-" .. tostring(os.time()) .. "-" .. tostring(temp_counter) .. "-" .. tostring(math.random(100000, 999999))
+    (prefix or "quietwrt-tests") .. "-" .. tostring(os.time()) .. "-" .. tostring(temp_counter) .. "-" .. tostring(math.random(100000, 999999))
   )
+end
+
+function M.make_temp_dir()
+  local path = M.make_temp_path()
   assert(M.create_dir(path), "failed to create temp dir " .. path)
   return path
+end
+
+function M.begin_suite()
+  if suite_state ~= nil then
+    return suite_state.root
+  end
+
+  local root = M.make_temp_path()
+  assert(M.create_dir(root), "failed to create suite temp dir " .. root)
+  suite_state = {
+    root = root,
+    counter = 0,
+  }
+
+  return root
+end
+
+function M.end_suite()
+  if suite_state == nil then
+    return true
+  end
+
+  local root = suite_state.root
+  suite_state = nil
+  M.remove_tree(root)
+  return true
+end
+
+local function allocate_fixture_root()
+  if suite_state ~= nil then
+    suite_state.counter = suite_state.counter + 1
+    return M.join_path(suite_state.root, "case-" .. tostring(suite_state.counter)), false
+  end
+
+  return M.make_temp_path(), true
 end
 
 function M.read_file(path)
@@ -97,7 +160,7 @@ end
 function M.make_context(overrides)
   overrides = overrides or {}
 
-  local root = M.make_temp_dir()
+  local root, owns_cleanup = allocate_fixture_root()
   local data_dir = M.join_path(root, "quietwrt-data")
   local paths = {
     config_path = M.join_path(root, "AdGuardHome.yaml"),
@@ -119,12 +182,15 @@ function M.make_context(overrides)
     restart_firewall_command = "restart-firewall",
   }
 
-  assert(M.create_dir(data_dir), "failed to create fixture data dir " .. data_dir)
-  assert(M.create_dir(M.join_path(root, "www", "cgi-bin")), "failed to create fixture cgi dir")
-  assert(M.create_dir(M.join_path(root, "usr", "lib", "lua", "quietwrt")), "failed to create fixture module dir")
-  assert(M.create_dir(M.join_path(root, "etc", "config")), "failed to create fixture etc/config dir")
-  assert(M.create_dir(M.join_path(root, "etc", "init.d")), "failed to create fixture init.d dir")
-  assert(M.create_dir(M.join_path(root, "etc", "rc.d")), "failed to create fixture rc.d dir")
+  assert(M.create_dirs({
+    root,
+    data_dir,
+    M.join_path(root, "www", "cgi-bin"),
+    M.join_path(root, "usr", "lib", "lua", "quietwrt"),
+    M.join_path(root, "etc", "config"),
+    M.join_path(root, "etc", "init.d"),
+    M.join_path(root, "etc", "rc.d"),
+  }), "failed to create fixture directory tree for " .. root)
 
   local command_log = {}
   local execute = overrides.execute or function(log, command)
@@ -164,7 +230,9 @@ function M.make_context(overrides)
     env = env,
     commands = command_log,
     cleanup = function()
-      M.remove_tree(root)
+      if owns_cleanup then
+        M.remove_tree(root)
+      end
     end,
   }
 end
