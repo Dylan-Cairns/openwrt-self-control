@@ -26,6 +26,23 @@ Describe 'QuietWrt PowerShell CLI' {
 
         $status.installed | Should Be $false
         $status.mode | Should Be 'not_installed'
+        $status.enforcement_ready | Should Be $false
+    }
+
+    It 'preserves the enforcement readiness flag from quietwrtctl status output' {
+        Mock Test-QuietWrtCliPresent { $true }
+        Mock Invoke-QuietWrtRemote {
+            [pscustomobject]@{
+                ExitStatus = 0
+                Output = '{"installed":true,"mode":"always_only","mode_label":"Always only","scheduled_mode":"always_only","protection_enabled":false,"enforcement_ready":false,"always_enabled":true,"workday_enabled":false,"overnight_enabled":true,"always_count":1,"workday_count":0,"active_rule_count":1,"hardening":{"dns_intercept":true,"dot_block":true,"overnight_rule":true},"warnings":["AdGuard Home protection is disabled."]}'
+                Raw = $null
+            }
+        }
+
+        $status = Get-QuietWrtStatus -Connection ([pscustomobject]@{})
+
+        $status.enforcement_ready | Should Be $false
+        $status.protection_enabled | Should Be $false
     }
 
     It 'throws when quietwrtctl status returns invalid json' {

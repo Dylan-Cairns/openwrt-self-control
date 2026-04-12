@@ -14,7 +14,7 @@ Before installing QuietWrt, confirm these in the GL.iNet admin UI:
 4. `IPv6` is disabled
 5. `Override DNS Settings for All Clients` is enabled
 6. the router timezone is correct
-7. `AdGuard Home` is enabled
+7. `AdGuard Home` is enabled and protection is on
 
 ## 2. Local Machine Prerequisites
 
@@ -67,6 +67,8 @@ It then:
 - enables the QuietWrt boot sync init script
 - installs or refreshes the managed firewall sections
 - applies the current mode immediately
+
+If `AdGuard Home` protection is disabled, install now fails closed instead of reporting a healthy QuietWrt install.
 
 ## 4. Daily Control Menu
 

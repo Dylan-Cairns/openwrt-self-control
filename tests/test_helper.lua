@@ -112,6 +112,8 @@ function M.make_context(overrides)
     module_dir = M.join_path(root, "usr", "lib", "lua", "quietwrt"),
     init_service_path = M.join_path(root, "etc", "init.d", "quietwrt"),
     enable_init_service_command = "enable-init-service",
+    disable_init_service_command = "disable-init-service",
+    init_service_enabled_path = M.join_path(root, "etc", "rc.d", "S99quietwrt"),
     restart_cron_command = "restart-cron",
     restart_firewall_command = "restart-firewall",
   }
@@ -120,6 +122,7 @@ function M.make_context(overrides)
   assert(M.create_dir(M.join_path(root, "www", "cgi-bin")), "failed to create fixture cgi dir")
   assert(M.create_dir(M.join_path(root, "usr", "lib", "lua", "quietwrt")), "failed to create fixture module dir")
   assert(M.create_dir(M.join_path(root, "etc", "init.d")), "failed to create fixture init.d dir")
+  assert(M.create_dir(M.join_path(root, "etc", "rc.d")), "failed to create fixture rc.d dir")
 
   local command_log = {}
   local execute = overrides.execute or function(log, command)

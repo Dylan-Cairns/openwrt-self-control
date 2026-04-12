@@ -18,6 +18,7 @@ It also enforces a nightly curfew by blocking `LAN -> WAN` traffic from `18:30` 
 ## How It Works
 
 - `AdGuard Home` handles domain blocking
+- QuietWrt fails closed if `AdGuard Home` protection is disabled
 - QuietWrt stores canonical list files in `/etc/quietwrt/`
 - firewall rules reduce DNS bypass and enforce the nightly curfew
 - a boot-time sync plus recurring sync jobs keep policy aligned after reboot and across schedule transitions

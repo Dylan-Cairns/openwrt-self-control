@@ -250,6 +250,7 @@ function New-QuietWrtStatusPlaceholder {
         mode_label = if ($Installed) { 'Unknown' } else { 'Not installed' }
         scheduled_mode = if ($Installed) { 'unknown' } else { 'not_installed' }
         protection_enabled = $null
+        enforcement_ready = $false
         always_enabled = $false
         workday_enabled = $false
         overnight_enabled = $false
@@ -661,6 +662,7 @@ function Show-QuietWrtStatus {
     }
 
     Write-Host "  Protection: $protection"
+    Write-Host "  Enforcement ready: $(if ($Status.enforcement_ready) { 'yes' } else { 'no' })"
     Write-Host "  Always blocklist: $(if ($Status.always_enabled) { 'enabled' } else { 'disabled' })"
     Write-Host "  Workday blocklist: $(if ($Status.workday_enabled) { 'enabled' } else { 'disabled' })"
     Write-Host "  Overnight blocking: $(if ($Status.overnight_enabled) { 'enabled' } else { 'disabled' })"

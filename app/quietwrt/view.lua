@@ -39,11 +39,18 @@ end
 function M.render_page(script_name, state)
   local banner = state.banner
   local protection = "unknown"
+  local enforcement = "unknown"
 
   if state.protection_enabled == true then
     protection = "enabled"
   elseif state.protection_enabled == false then
     protection = "disabled"
+  end
+
+  if state.enforcement_ready == true then
+    enforcement = "ready"
+  elseif state.enforcement_ready == false then
+    enforcement = "not ready"
   end
 
   local always_text = render_list_text(state.always_hosts or {})
@@ -84,7 +91,7 @@ function M.render_page(script_name, state)
   write("<div class=\"panel\">\n")
   write("<div><strong>Mode:</strong> ", util.html_escape(state.current_mode.label), "</div>\n")
   write("<div class=\"meta\">", util.html_escape(state.current_mode.description), "</div>\n")
-  write("<div class=\"meta\"><strong>Protection:</strong> ", protection, " | <strong>Always blocked:</strong> ", tostring(#(state.always_hosts or {})), " | <strong>Workday blocked:</strong> ", tostring(#(state.workday_hosts or {})), " | <strong>Active rules:</strong> ", tostring(state.active_rule_count or 0), "</div>\n")
+  write("<div class=\"meta\"><strong>Protection:</strong> ", protection, " | <strong>Enforcement:</strong> ", enforcement, " | <strong>Always blocked:</strong> ", tostring(#(state.always_hosts or {})), " | <strong>Workday blocked:</strong> ", tostring(#(state.workday_hosts or {})), " | <strong>Active rules:</strong> ", tostring(state.active_rule_count or 0), "</div>\n")
   write("</div>\n")
 
   if state.load_error then

@@ -39,6 +39,25 @@ function TestServiceIntegration:test_install_bootstraps_lists_and_marks_the_inst
   fixture.cleanup()
 end
 
+function TestServiceIntegration:test_install_fails_closed_when_adguard_protection_is_disabled()
+  local fixture = helper.make_context()
+  helper.write_config(fixture.paths.config_path, {}, false)
+
+  local context = service.new_context({
+    env = fixture.env,
+    paths = fixture.paths,
+  })
+
+  local ok, err = service.install(context)
+  lu.assertFalse(ok)
+  lu.assertStrContains(err, "protection is disabled")
+  lu.assertNil(helper.read_file(fixture.paths.always_list_path))
+  lu.assertNil(helper.read_file(fixture.paths.workday_list_path))
+  lu.assertNil(helper.read_file(fixture.paths.passthrough_rules_path))
+  lu.assertEquals(#fixture.commands, 0)
+  fixture.cleanup()
+end
+
 function TestServiceIntegration:test_load_view_state_requires_a_managed_install()
   local fixture = helper.make_context()
   helper.write_config(fixture.paths.config_path, {})
@@ -178,6 +197,64 @@ function TestServiceIntegration:test_firewall_failure_restores_previous_state()
   fixture.cleanup()
 end
 
+function TestServiceIntegration:test_install_rolls_back_bootstrapped_lists_schedule_and_boot_service_on_apply_failure()
+  local fixture = helper.make_context({
+    execute = function(log, command)
+      table.insert(log, command)
+      if command == "restart-firewall" then
+        return 1
+      end
+      return 0
+    end,
+  })
+
+  helper.write_config(fixture.paths.config_path, {})
+
+  local context = service.new_context({
+    env = fixture.env,
+    paths = fixture.paths,
+  })
+
+  local ok, err = service.install(context)
+  lu.assertFalse(ok)
+  lu.assertStrContains(err, "Firewall update failed")
+  lu.assertNil(helper.read_file(fixture.paths.always_list_path))
+  lu.assertNil(helper.read_file(fixture.paths.workday_list_path))
+  lu.assertNil(helper.read_file(fixture.paths.passthrough_rules_path))
+  lu.assertNil(helper.read_file(fixture.paths.crontab_path))
+
+  local joined = table.concat(fixture.commands, "\n")
+  lu.assertStrContains(joined, "enable-init-service")
+  lu.assertStrContains(joined, "disable-init-service")
+  fixture.cleanup()
+end
+
+function TestServiceIntegration:test_apply_current_mode_fails_closed_when_adguard_protection_is_disabled()
+  local fixture = helper.make_context({
+    capture_map = {
+      ["uci -q get quietwrt.settings.schema_version"] = "1",
+      ["uci -q get quietwrt.settings.always_enabled"] = "1",
+      ["uci -q get quietwrt.settings.workday_enabled"] = "1",
+      ["uci -q get quietwrt.settings.overnight_enabled"] = "1",
+    },
+  })
+
+  helper.write_config(fixture.paths.config_path, {}, false)
+  helper.write_file(fixture.paths.always_list_path, "example.com\n")
+  helper.write_file(fixture.paths.workday_list_path, "")
+  helper.write_file(fixture.paths.passthrough_rules_path, "")
+
+  local context = service.new_context({
+    env = fixture.env,
+    paths = fixture.paths,
+  })
+
+  local ok, err = service.apply_current_mode(context)
+  lu.assertFalse(ok)
+  lu.assertStrContains(err, "protection is disabled")
+  fixture.cleanup()
+end
+
 function TestServiceIntegration:test_status_json_reports_flags_counts_and_hardening()
   local fixture = helper.make_context({
     capture_map = {
@@ -209,7 +286,37 @@ function TestServiceIntegration:test_status_json_reports_flags_counts_and_harden
   lu.assertStrContains(output, '"always_enabled":true')
   lu.assertStrContains(output, '"workday_enabled":false')
   lu.assertStrContains(output, '"always_count":1')
+  lu.assertStrContains(output, '"enforcement_ready":true')
   lu.assertStrContains(output, '"dns_intercept":true')
+  fixture.cleanup()
+end
+
+function TestServiceIntegration:test_status_json_reports_disabled_protection_and_enforcement_not_ready()
+  local fixture = helper.make_context({
+    capture_map = {
+      ["uci -q get quietwrt.settings.schema_version"] = "1",
+      ["uci -q get quietwrt.settings.always_enabled"] = "1",
+      ["uci -q get quietwrt.settings.workday_enabled"] = "1",
+      ["uci -q get quietwrt.settings.overnight_enabled"] = "1",
+    },
+  })
+
+  helper.write_config(fixture.paths.config_path, {}, false)
+  helper.write_file(fixture.paths.always_list_path, "example.com\n")
+  helper.write_file(fixture.paths.workday_list_path, "")
+  helper.write_file(fixture.paths.passthrough_rules_path, "")
+
+  local context = service.new_context({
+    env = fixture.env,
+    paths = fixture.paths,
+  })
+
+  local ok, output = service.status(context, {
+    json = true,
+  })
+  lu.assertTrue(ok)
+  lu.assertStrContains(output, '"protection_enabled":false')
+  lu.assertStrContains(output, '"enforcement_ready":false')
   fixture.cleanup()
 end
 

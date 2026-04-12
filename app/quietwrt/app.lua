@@ -32,6 +32,13 @@ function M.run_cgi(options)
 
   local query = util.parse_form_encoded(os.getenv("QUERY_STRING") or "")
   local state, load_error = service.load_view_state(context)
+  local protection_enabled = nil
+  local enforcement_ready = nil
+
+  if state ~= nil then
+    protection_enabled = state.protection_enabled
+    enforcement_ready = state.enforcement_ready
+  end
 
   view.render_page(script_name, {
     banner = {
@@ -39,7 +46,8 @@ function M.run_cgi(options)
       message = query.message or "",
     },
     load_error = load_error,
-    protection_enabled = state and state.protection_enabled or nil,
+    protection_enabled = protection_enabled,
+    enforcement_ready = enforcement_ready,
     current_mode = state and state.current_mode or {
       label = "Unknown",
       description = "Could not load the current QuietWrt mode.",

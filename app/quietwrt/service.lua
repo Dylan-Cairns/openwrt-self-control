@@ -51,6 +51,8 @@ local function default_paths()
     module_dir = "/usr/lib/lua/quietwrt",
     init_service_path = "/etc/init.d/quietwrt",
     enable_init_service_command = "/etc/init.d/quietwrt enable >/tmp/quietwrt-init-enable.log 2>&1",
+    disable_init_service_command = "/etc/init.d/quietwrt disable >/tmp/quietwrt-init-disable.log 2>&1",
+    init_service_enabled_path = "/etc/rc.d/S99quietwrt",
     restart_cron_command = "/etc/init.d/cron restart >/tmp/quietwrt-cron-restart.log 2>&1",
     restart_firewall_command = "service firewall restart >/tmp/quietwrt-firewall-restart.log 2>&1",
   }
@@ -100,6 +102,34 @@ local function uci_unquote(value)
     return (text:sub(2, -2):gsub("'\\''", "'"))
   end
   return text
+end
+
+local function enforcement_error(paths, parsed_config)
+  if parsed_config == nil then
+    return "Could not read " .. paths.config_path .. "."
+  end
+
+  if parsed_config.protection_enabled == true then
+    return nil
+  end
+
+  if parsed_config.protection_enabled == false then
+    return "AdGuard Home protection is disabled in " .. paths.config_path .. ". QuietWrt cannot enforce blocklists until it is enabled."
+  end
+
+  return "Could not confirm that AdGuard Home protection is enabled in " .. paths.config_path .. ". QuietWrt fails closed until it is enabled."
+end
+
+local function is_enforcement_ready(paths, parsed_config)
+  return enforcement_error(paths, parsed_config) == nil
+end
+
+local function require_enforcement_ready(paths, parsed_config)
+  local err = enforcement_error(paths, parsed_config)
+  if err then
+    return false, err
+  end
+  return true, nil
 end
 
 local function write_atomic(env, path, content)
@@ -349,7 +379,7 @@ local function write_settings(env, settings, schema_version)
   return run_commands(env, commands)
 end
 
-local function ensure_settings(env, paths, settings, options)
+local function resolve_settings(env, paths, settings, options)
   local current = read_settings(env, true)
   local install_state = read_install_state(env, paths)
   local desired = {
@@ -377,13 +407,22 @@ local function ensure_settings(env, paths, settings, options)
     desired_schema_version = install_state.schema_version
   end
 
-  local ok, failed_command = write_settings(env, desired, desired_schema_version)
+  desired.schema_version = desired_schema_version
+  return desired
+end
+
+local function persist_settings(env, settings)
+  local ok, failed_command = write_settings(env, settings, settings and settings.schema_version or nil)
   if ok then
-    desired.schema_version = desired_schema_version
-    return true, desired
+    return true, settings
   end
 
   return false, "QuietWrt settings update failed while running: " .. failed_command
+end
+
+local function ensure_settings(env, paths, settings, options)
+  local desired = resolve_settings(env, paths, settings, options)
+  return persist_settings(env, desired)
 end
 
 local function build_active_hosts(lists, settings, scheduled_mode)
@@ -401,7 +440,7 @@ local function build_active_hosts(lists, settings, scheduled_mode)
   return always_hosts, workday_hosts
 end
 
-local function build_view_state(parsed_config, lists, settings, current_mode, scheduled_mode, hardening_state, installed)
+local function build_view_state(parsed_config, lists, settings, current_mode, scheduled_mode, hardening_state, installed, enforcement_ready)
   local active_always_hosts, active_workday_hosts = build_active_hosts(lists, settings, scheduled_mode)
   local active_rules = rules.compile_active_rules(
     active_always_hosts,
@@ -410,9 +449,15 @@ local function build_view_state(parsed_config, lists, settings, current_mode, sc
     { code = "always_and_workday" }
   )
 
+  local protection_enabled = nil
+  if parsed_config ~= nil then
+    protection_enabled = parsed_config.protection_enabled
+  end
+
   return {
     installed = installed,
-    protection_enabled = parsed_config and parsed_config.protection_enabled or nil,
+    protection_enabled = protection_enabled,
+    enforcement_ready = enforcement_ready,
     current_mode = current_mode,
     settings = settings,
     always_hosts = lists.always_hosts,
@@ -661,6 +706,64 @@ local function enable_boot_sync_service(env, paths)
   return false, "Could not enable the QuietWrt boot sync service at " .. paths.init_service_path .. "."
 end
 
+local function restore_file(env, path, content)
+  if content == nil then
+    env.remove_file(path)
+    if env.file_exists(path) then
+      return false, "Could not remove " .. path .. "."
+    end
+    return true, nil
+  end
+
+  return write_atomic(env, path, content)
+end
+
+local function restore_schedule(env, paths, original_content)
+  local saved, save_error = restore_file(env, paths.crontab_path, original_content)
+  if not saved then
+    return false, save_error
+  end
+
+  if util.command_succeeded(env.execute(paths.restart_cron_command)) then
+    return true, nil
+  end
+
+  return false, "Cron restart failed while restoring " .. paths.crontab_path .. "."
+end
+
+local function restore_boot_sync_service(env, paths, was_enabled)
+  local command = was_enabled and paths.enable_init_service_command or paths.disable_init_service_command
+  if util.command_succeeded(env.execute(command)) then
+    return true, nil
+  end
+
+  if was_enabled then
+    return false, "Could not re-enable the QuietWrt boot sync service at " .. paths.init_service_path .. "."
+  end
+
+  return false, "Could not disable the QuietWrt boot sync service at " .. paths.init_service_path .. "."
+end
+
+local function remove_bootstrapped_lists(env, paths)
+  local errors = {}
+  for _, path in ipairs({
+    paths.always_list_path,
+    paths.workday_list_path,
+    paths.passthrough_rules_path,
+  }) do
+    env.remove_file(path)
+    if env.file_exists(path) then
+      table.insert(errors, "Could not remove " .. path .. ".")
+    end
+  end
+
+  if #errors > 0 then
+    return false, table.concat(errors, " | ")
+  end
+
+  return true, nil
+end
+
 local function restore_adguard_config(env, paths, content)
   local saved, save_error = write_atomic(env, paths.config_path, content)
   if not saved then
@@ -713,6 +816,69 @@ local function restore_previous_lists(context, previous_lists)
   return rollback_errors
 end
 
+local function rollback_install(context, rollback_state)
+  local rollback_errors = {}
+
+  if rollback_state.applied then
+    local restore_ok, restore_error = restore_adguard_config(
+      context.env,
+      context.paths,
+      rollback_state.original_adguard_config
+    )
+    if not restore_ok then
+      table.insert(rollback_errors, restore_error)
+    end
+
+    local firewall_ok, firewall_error = commit_firewall_snapshot(
+      context.env,
+      context.paths,
+      rollback_state.original_firewall
+    )
+    if not firewall_ok then
+      table.insert(rollback_errors, firewall_error)
+    end
+  end
+
+  if rollback_state.schedule_changed then
+    local schedule_ok, schedule_error = restore_schedule(
+      context.env,
+      context.paths,
+      rollback_state.original_crontab
+    )
+    if not schedule_ok then
+      table.insert(rollback_errors, schedule_error)
+    end
+  end
+
+  if rollback_state.boot_service_changed then
+    local boot_service_ok, boot_service_error = restore_boot_sync_service(
+      context.env,
+      context.paths,
+      rollback_state.boot_service_enabled
+    )
+    if not boot_service_ok then
+      table.insert(rollback_errors, boot_service_error)
+    end
+  end
+
+  if rollback_state.bootstrapped_lists then
+    local cleanup_ok, cleanup_error = remove_bootstrapped_lists(context.env, context.paths)
+    if not cleanup_ok then
+      table.insert(rollback_errors, cleanup_error)
+    end
+  end
+
+  return rollback_errors
+end
+
+local function append_rollback_errors(message, rollback_errors)
+  if rollback_errors == nil or #rollback_errors == 0 then
+    return message
+  end
+
+  return message .. " Rollback issues: " .. table.concat(rollback_errors, " | ")
+end
+
 local function status_snapshot(context)
   local install_state = read_install_state(context.env, context.paths)
   local installed = install_state.installed
@@ -720,10 +886,17 @@ local function status_snapshot(context)
   local parsed_config, config_error = read_adguard_state(context.env, context.paths)
   local lists = empty_lists_state()
   local warnings = {}
+  local enforcement_ready = false
 
   if not parsed_config then
     table.insert(warnings, config_error)
   else
+    enforcement_ready = is_enforcement_ready(context.paths, parsed_config)
+    local enforcement_warning = enforcement_error(context.paths, parsed_config)
+    if enforcement_warning then
+      table.insert(warnings, enforcement_warning)
+    end
+
     local loaded_lists, list_error = load_lists(context.env, context.paths, parsed_config, {
       installed = installed,
       allow_bootstrap = false,
@@ -741,7 +914,16 @@ local function status_snapshot(context)
     dot_block = false,
     overnight_rule = false,
   }
-  local snapshot = build_view_state(parsed_config, lists, settings, effective_mode, scheduled_mode, hardening, installed)
+  local snapshot = build_view_state(
+    parsed_config,
+    lists,
+    settings,
+    effective_mode,
+    scheduled_mode,
+    hardening,
+    installed,
+    enforcement_ready
+  )
   snapshot.install_state = install_state
   snapshot.scheduled_mode = scheduled_mode
   snapshot.warnings = warnings
@@ -757,6 +939,7 @@ local function render_status_text(snapshot)
       or snapshot.protection_enabled == false and "disabled"
       or "unknown"
     ),
+    "Enforcement ready: " .. (snapshot.enforcement_ready and "yes" or "no"),
     "Always enabled: " .. (snapshot.settings.always_enabled and "yes" or "no"),
     "Workday enabled: " .. (snapshot.settings.workday_enabled and "yes" or "no"),
     "Overnight enabled: " .. (snapshot.settings.overnight_enabled and "yes" or "no"),
@@ -782,6 +965,7 @@ local function render_status_json(snapshot)
     mode_label = snapshot.current_mode.label,
     scheduled_mode = snapshot.scheduled_mode.code,
     protection_enabled = snapshot.protection_enabled,
+    enforcement_ready = snapshot.enforcement_ready,
     always_enabled = snapshot.settings.always_enabled,
     workday_enabled = snapshot.settings.workday_enabled,
     overnight_enabled = snapshot.settings.overnight_enabled,
@@ -814,25 +998,50 @@ function M.load_view_state(context)
   return snapshot, nil
 end
 
-function M.apply_current_mode(context)
-  if not detect_installed(context.env, context.paths) then
+local function apply_mode(context, options)
+  options = options or {}
+
+  if options.require_installed ~= false and not detect_installed(context.env, context.paths) then
     return false, "QuietWrt is not installed."
   end
 
-  local parsed_config, config_error = read_adguard_state(context.env, context.paths)
+  local parsed_config = options.parsed_config
   if not parsed_config then
-    return false, config_error
+    local config_error
+    parsed_config, config_error = read_adguard_state(context.env, context.paths)
+    if not parsed_config then
+      return false, config_error
+    end
   end
 
-  local lists, list_error = load_lists(context.env, context.paths, parsed_config, {
-    installed = true,
-    allow_bootstrap = false,
-  })
+  local enforcement_ok, enforcement_check_error = require_enforcement_ready(context.paths, parsed_config)
+  if not enforcement_ok then
+    return false, enforcement_check_error
+  end
+
+  local lists = options.lists
   if not lists then
-    return false, list_error
+    local installed = options.installed
+    if installed == nil then
+      installed = true
+    end
+
+    local allow_bootstrap = options.allow_bootstrap == true
+    local list_error
+    lists, list_error = load_lists(context.env, context.paths, parsed_config, {
+      installed = installed,
+      allow_bootstrap = allow_bootstrap,
+    })
+    if not lists then
+      return false, list_error
+    end
   end
 
-  local settings = read_settings(context.env, true)
+  local settings = options.settings
+  if settings == nil then
+    settings = read_settings(context.env, true)
+  end
+
   local effective_mode, scheduled_mode = current_effective_mode(settings, context.env.now())
   local active_always_hosts, active_workday_hosts = build_active_hosts(lists, settings, scheduled_mode)
   local compiled_rules = rules.compile_active_rules(
@@ -890,6 +1099,12 @@ function M.apply_current_mode(context)
   }
 end
 
+function M.apply_current_mode(context)
+  return apply_mode(context, {
+    require_installed = true,
+  })
+end
+
 function M.add_entry(context, destination, raw_value)
   if not detect_installed(context.env, context.paths) then
     return {
@@ -905,6 +1120,15 @@ function M.add_entry(context, destination, raw_value)
       ok = false,
       kind = "error",
       message = config_error,
+    }
+  end
+
+  local enforcement_ok, enforcement_check_error = require_enforcement_ready(context.paths, parsed_config)
+  if not enforcement_ok then
+    return {
+      ok = false,
+      kind = "error",
+      message = enforcement_check_error,
     }
   end
 
@@ -977,6 +1201,11 @@ function M.install(context)
     return false, config_error
   end
 
+  local enforcement_ok, enforcement_check_error = require_enforcement_ready(context.paths, parsed_config)
+  if not enforcement_ok then
+    return false, enforcement_check_error
+  end
+
   local install_state = read_install_state(context.env, context.paths)
   local lists, list_error = load_lists(context.env, context.paths, parsed_config, {
     installed = install_state.installed,
@@ -986,31 +1215,55 @@ function M.install(context)
     return false, list_error
   end
 
-  local desired_settings = install_state.installed and {} or {
+  local desired_settings_input = install_state.installed and {} or {
     always_enabled = true,
     workday_enabled = true,
     overnight_enabled = true,
   }
-  local settings_ok, settings_result = ensure_settings(context.env, context.paths, desired_settings, {
+  local staged_settings = resolve_settings(context.env, context.paths, desired_settings_input, {
     schema_version = QUIETWRT_SCHEMA_VERSION,
   })
-  if not settings_ok then
-    return false, settings_result
-  end
+
+  local rollback_state = {
+    original_crontab = context.env.read_file(context.paths.crontab_path),
+    boot_service_enabled = context.env.file_exists(context.paths.init_service_enabled_path),
+    bootstrapped_lists = lists.bootstrapped == true,
+    original_adguard_config = parsed_config.content,
+    original_firewall = capture_firewall_snapshot(context.env),
+    schedule_changed = true,
+    boot_service_changed = false,
+    applied = false,
+  }
 
   local schedule_ok, schedule_error = install_schedule(context.env, context.paths)
   if not schedule_ok then
-    return false, schedule_error
+    local rollback_errors = rollback_install(context, rollback_state)
+    return false, append_rollback_errors(schedule_error, rollback_errors)
   end
 
   local boot_service_ok, boot_service_error = enable_boot_sync_service(context.env, context.paths)
   if not boot_service_ok then
-    return false, boot_service_error
+    local rollback_errors = rollback_install(context, rollback_state)
+    return false, append_rollback_errors(boot_service_error, rollback_errors)
   end
+  rollback_state.boot_service_changed = true
 
-  local applied, apply_result = M.apply_current_mode(context)
+  local applied, apply_result = apply_mode(context, {
+    require_installed = false,
+    parsed_config = parsed_config,
+    lists = lists,
+    settings = staged_settings,
+  })
   if not applied then
-    return false, apply_result
+    local rollback_errors = rollback_install(context, rollback_state)
+    return false, append_rollback_errors(apply_result, rollback_errors)
+  end
+  rollback_state.applied = true
+
+  local settings_ok, settings_result = persist_settings(context.env, staged_settings)
+  if not settings_ok then
+    local rollback_errors = rollback_install(context, rollback_state)
+    return false, append_rollback_errors(settings_result, rollback_errors)
   end
 
   return true, {
@@ -1024,6 +1277,16 @@ end
 function M.set_toggle(context, toggle_name, enabled)
   if not detect_installed(context.env, context.paths) then
     return false, "QuietWrt is not installed."
+  end
+
+  local parsed_config, config_error = read_adguard_state(context.env, context.paths)
+  if not parsed_config then
+    return false, config_error
+  end
+
+  local enforcement_ok, enforcement_check_error = require_enforcement_ready(context.paths, parsed_config)
+  if not enforcement_ok then
+    return false, enforcement_check_error
   end
 
   local settings = read_settings(context.env, true)
@@ -1063,6 +1326,11 @@ function M.restore_lists(context, restore_paths)
   local parsed_config, config_error = read_adguard_state(context.env, context.paths)
   if not parsed_config then
     return false, config_error
+  end
+
+  local enforcement_ok, enforcement_check_error = require_enforcement_ready(context.paths, parsed_config)
+  if not enforcement_ok then
+    return false, enforcement_check_error
   end
 
   local current_lists, list_error = load_lists(context.env, context.paths, parsed_config, {
