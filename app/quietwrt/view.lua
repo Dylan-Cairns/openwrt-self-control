@@ -68,6 +68,40 @@ local function render_status_item(label, values, detail)
   return table.concat(parts)
 end
 
+local function render_window_detail(window)
+  if not window then
+    return util.html_escape("Schedule window is unavailable.")
+  end
+
+  local detail = "Active from "
+    .. render_code(window.display_start)
+    .. " until "
+    .. render_code(window.display_end)
+
+  if window.overnight then
+    detail = detail .. " (overnight)"
+  end
+
+  return detail .. "."
+end
+
+local function render_overnight_detail(window)
+  if not window then
+    return util.html_escape("Overnight lockout window is unavailable.")
+  end
+
+  local detail = "Internet access is fully blocked from "
+    .. render_code(window.display_start)
+    .. " until "
+    .. render_code(window.display_end)
+
+  if window.overnight then
+    detail = detail .. " (overnight)"
+  end
+
+  return detail .. "."
+end
+
 local function render_enabled_chip(enabled)
   if enabled == true then
     return render_chip("Enabled", "enabled")
@@ -123,8 +157,11 @@ function M.render_page(script_name, state)
   local settings = state.settings or {}
   local always_hosts = state.always_hosts or {}
   local workday_hosts = state.workday_hosts or {}
+  local after_work_hosts = state.after_work_hosts or {}
+  local schedule_state = state.schedule or {}
   local always_list = render_rule_list(always_hosts, "No always-blocked domains.")
   local workday_list = render_rule_list(workday_hosts, "No workday-blocked domains.")
+  local after_work_list = render_rule_list(after_work_hosts, "No after-work-blocked domains.")
 
   M.send_html()
   write("<!doctype html>\n")
@@ -198,11 +235,15 @@ function M.render_page(script_name, state)
   write(render_status_item("Workday blocklist", {
     render_enabled_chip(settings.workday_enabled),
     render_activity_chip(settings.workday_enabled, state.workday_active),
-  }, "Active from " .. render_code("04:00") .. " until " .. render_code("16:30") .. "."), "\n")
+  }, render_window_detail(schedule_state.workday)), "\n")
+  write(render_status_item("After work blocklist", {
+    render_enabled_chip(settings.after_work_enabled),
+    render_activity_chip(settings.after_work_enabled, state.after_work_active),
+  }, render_window_detail(schedule_state.after_work)), "\n")
   write(render_status_item("Overnight lockout", {
     render_enabled_chip(settings.overnight_enabled),
     render_activity_chip(settings.overnight_enabled, state.overnight_active),
-  }, "Internet access is fully blocked from " .. render_code("18:30") .. " until " .. render_code("04:00") .. "."), "\n")
+  }, render_overnight_detail(schedule_state.overnight)), "\n")
   write("</div>\n")
   write("</section>\n")
 
@@ -228,6 +269,7 @@ function M.render_page(script_name, state)
   write("<select id=\"list_kind\" name=\"list_kind\">\n")
   write("<option value=\"always\">Always blocked</option>\n")
   write("<option value=\"workday\">Workday blocked</option>\n")
+  write("<option value=\"after_work\">After work blocked</option>\n")
   write("</select>\n")
   write("</div>\n")
   write("<div class=\"button-wrap\"><button type=\"submit\">Add Entry</button></div>\n")
@@ -246,6 +288,11 @@ function M.render_page(script_name, state)
   write("<div class=\"section-title\"><h3>Workday blocked</h3><span class=\"count-badge\">", tostring(#workday_hosts), " entries</span></div>\n")
   write("<p class=\"field-help\">These domains are added during the workday schedule window only.</p>\n")
   write(workday_list, "\n")
+  write("</div>\n")
+  write("<div class=\"panel list-panel\">\n")
+  write("<div class=\"section-title\"><h3>After work blocked</h3><span class=\"count-badge\">", tostring(#after_work_hosts), " entries</span></div>\n")
+  write("<p class=\"field-help\">These domains are added during the after-work schedule window only.</p>\n")
+  write(after_work_list, "\n")
   write("</div>\n")
   write("</section>\n")
   write("</div>\n")

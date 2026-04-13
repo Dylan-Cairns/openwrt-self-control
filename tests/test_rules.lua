@@ -15,32 +15,50 @@ function TestRules:test_reject_ip_input()
   lu.assertStrContains(err, "IP addresses")
 end
 
-function TestRules:test_workday_rejects_existing_always_host()
-  local result = rules.apply_addition({ "example.com" }, {}, "workday", "example.com")
+function TestRules:test_scheduled_lists_reject_existing_always_host()
+  local result = rules.apply_addition({ "example.com" }, {
+    workday = {},
+    after_work = {},
+  }, "workday", "example.com")
   lu.assertFalse(result.ok)
   lu.assertEquals(result.kind, "error")
   lu.assertStrContains(result.message, "already always blocked")
 end
 
 function TestRules:test_always_add_moves_from_workday()
-  local result = rules.apply_addition({}, { "example.com" }, "always", "example.com")
+  local result = rules.apply_addition({}, {
+    workday = { "example.com" },
+    after_work = {},
+  }, "always", "example.com")
   lu.assertTrue(result.ok)
   lu.assertEquals(result.always_hosts, { "example.com" })
   lu.assertEquals(result.workday_hosts, {})
   lu.assertStrContains(result.message, "Moved example.com")
 end
 
-function TestRules:test_compile_active_rules_respects_mode()
+function TestRules:test_after_work_add_moves_from_workday()
+  local result = rules.apply_addition({}, {
+    workday = { "example.com" },
+    after_work = {},
+  }, "after_work", "example.com")
+  lu.assertTrue(result.ok)
+  lu.assertEquals(result.workday_hosts, {})
+  lu.assertEquals(result.after_work_hosts, { "example.com" })
+  lu.assertStrContains(result.message, "After work blocked")
+end
+
+function TestRules:test_compile_active_rules_unions_always_and_scheduled_lists()
   local compiled = rules.compile_active_rules(
     { "always.com" },
-    { "workday.com" },
-    { "@@||allowed.com^" },
-    { code = "always_only" }
+    { "workday.com", "afterwork.com" },
+    { "@@||allowed.com^" }
   )
 
   lu.assertEquals(compiled, {
     "@@||allowed.com^",
+    "||afterwork.com^",
     "||always.com^",
+    "||workday.com^",
   })
 end
 

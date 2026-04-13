@@ -25,6 +25,7 @@ $script:QuietWrtRemotePaths = [ordered]@{
     ModuleDir = '/usr/lib/lua/quietwrt'
     AlwaysListPath = '/etc/quietwrt/always-blocked.txt'
     WorkdayListPath = '/etc/quietwrt/workday-blocked.txt'
+    AfterWorkListPath = '/etc/quietwrt/after-work-blocked.txt'
 }
 
 function Import-QuietWrtDependencies {
@@ -450,17 +451,20 @@ function New-QuietWrtStatusPlaceholder {
 
     return [pscustomobject]@{
         installed = $Installed
-        mode = if ($Installed) { 'unknown' } else { 'not_installed' }
-        mode_label = if ($Installed) { 'Unknown' } else { 'Not installed' }
-        scheduled_mode = if ($Installed) { 'unknown' } else { 'not_installed' }
         protection_enabled = $null
         enforcement_ready = $false
         always_enabled = $false
         workday_enabled = $false
+        after_work_enabled = $false
         overnight_enabled = $false
+        workday_active = $false
+        after_work_active = $false
+        overnight_active = $false
         always_count = 0
         workday_count = 0
+        after_work_count = 0
         active_rule_count = 0
+        schedule = [pscustomobject]@{}
         hardening = [pscustomobject]@{
             dns_intercept = $false
             dot_block = $false
@@ -699,7 +703,7 @@ function Install-QuietWrtOnRouter {
 function Set-QuietWrtToggleState {
     param(
         $Connection,
-        [ValidateSet('always', 'workday', 'overnight')]
+        [ValidateSet('always', 'workday', 'after_work', 'overnight')]
         [string]$ToggleName,
         [bool]$Enabled
     )
@@ -713,6 +717,117 @@ function Set-QuietWrtToggleState {
     return Get-QuietWrtStatus -Connection $Connection
 }
 
+function Test-QuietWrtScheduleValue {
+    param(
+        [string]$Value
+    )
+
+    if ($Value -notmatch '^\d{4}$') {
+        return $false
+    }
+
+    $hour = [int]$Value.Substring(0, 2)
+    $minute = [int]$Value.Substring(2, 2)
+    return $hour -ge 0 -and $hour -le 23 -and $minute -ge 0 -and $minute -le 59
+}
+
+function Format-QuietWrtScheduleValue {
+    param(
+        [string]$Value
+    )
+
+    if (-not (Test-QuietWrtScheduleValue -Value $Value)) {
+        throw "Invalid QuietWrt schedule value: $Value"
+    }
+
+    return '{0}:{1}' -f $Value.Substring(0, 2), $Value.Substring(2, 2)
+}
+
+function Get-QuietWrtWindowSummary {
+    param(
+        [string]$Start,
+        [string]$End
+    )
+
+    $summary = "$(Format-QuietWrtScheduleValue -Value $Start) to $(Format-QuietWrtScheduleValue -Value $End)"
+    if ($Start -gt $End) {
+        return "$summary (overnight)"
+    }
+
+    return $summary
+}
+
+function Read-QuietWrtScheduleValue {
+    param(
+        [string]$Prompt
+    )
+
+    while ($true) {
+        $value = (Read-Host -Prompt $Prompt).Trim()
+        if (Test-QuietWrtScheduleValue -Value $value) {
+            return $value
+        }
+
+        Write-Warning 'Enter a 4-digit military time in HHMM format, for example 1630.'
+    }
+}
+
+function Set-QuietWrtScheduleState {
+    param(
+        $Connection,
+        [ValidateSet('workday', 'after_work', 'overnight')]
+        [string]$ScheduleName,
+        [string]$Start,
+        [string]$End
+    )
+
+    if (-not (Test-QuietWrtInstalled -Connection $Connection)) {
+        throw 'QuietWrt is not installed on this router.'
+    }
+
+    Invoke-QuietWrtRemote -Connection $Connection -Command "/usr/bin/quietwrtctl schedule $ScheduleName $Start $End" -TimeoutSeconds 120 | Out-Null
+    return Get-QuietWrtStatus -Connection $Connection
+}
+
+function Update-QuietWrtScheduleWindow {
+    param(
+        $Connection,
+        [ValidateSet('workday', 'after_work', 'overnight')]
+        [string]$ScheduleName,
+        $Status
+    )
+
+    $label = switch ($ScheduleName) {
+        'workday' { 'Workday' }
+        'after_work' { 'After work' }
+        'overnight' { 'Overnight' }
+    }
+
+    $currentWindow = $Status.schedule.$ScheduleName
+    if ($currentWindow) {
+        Write-Host ''
+        Write-Host "$label window: $(Get-QuietWrtWindowSummary -Start $currentWindow.start -End $currentWindow.end)"
+    }
+
+    $start = Read-QuietWrtScheduleValue -Prompt "$label start time (HHMM)"
+    $end = Read-QuietWrtScheduleValue -Prompt "$label end time (HHMM)"
+
+    if ($start -eq $end) {
+        throw "$label start and end times must be different."
+    }
+
+    $summary = Get-QuietWrtWindowSummary -Start $start -End $end
+    Write-Host ''
+    Write-Host "$label window: $summary"
+
+    $confirmation = Read-Host -Prompt 'Apply this schedule window? [y/N]'
+    if ($confirmation -notin @('y', 'Y', 'yes', 'YES', 'Yes')) {
+        throw 'Schedule update cancelled.'
+    }
+
+    return Set-QuietWrtScheduleState -Connection $Connection -ScheduleName $ScheduleName -Start $start -End $end
+}
+
 function Get-QuietWrtBackupFileNames {
     param(
         [string]$OutputDirectory,
@@ -724,6 +839,7 @@ function Get-QuietWrtBackupFileNames {
     return [pscustomobject]@{
         Always = Join-Path $OutputDirectory "quietwrt-always-$suffix.txt"
         Workday = Join-Path $OutputDirectory "quietwrt-workday-$suffix.txt"
+        AfterWork = Join-Path $OutputDirectory "quietwrt-after-work-$suffix.txt"
     }
 }
 
@@ -734,16 +850,19 @@ function Get-QuietWrtLatestBackupSelection {
 
     $always = @()
     $workday = @()
+    $afterWork = @()
 
     if (Test-Path -LiteralPath $BackupDirectory) {
         $always = @(Get-ChildItem -LiteralPath $BackupDirectory -File -Filter 'quietwrt-always-*.txt' | Sort-Object Name -Descending)
         $workday = @(Get-ChildItem -LiteralPath $BackupDirectory -File -Filter 'quietwrt-workday-*.txt' | Sort-Object Name -Descending)
+        $afterWork = @(Get-ChildItem -LiteralPath $BackupDirectory -File -Filter 'quietwrt-after-work-*.txt' | Sort-Object Name -Descending)
     }
 
     return [pscustomobject]@{
         Directory = $BackupDirectory
         Always = if ($always.Count -gt 0) { $always[0] } else { $null }
         Workday = if ($workday.Count -gt 0) { $workday[0] } else { $null }
+        AfterWork = if ($afterWork.Count -gt 0) { $afterWork[0] } else { $null }
     }
 }
 
@@ -761,7 +880,7 @@ function Backup-QuietWrtBlocklists {
 
     $check = Invoke-QuietWrtRemote -Connection $Connection -Command @'
 missing=0
-for path in /etc/quietwrt/always-blocked.txt /etc/quietwrt/workday-blocked.txt; do
+for path in /etc/quietwrt/always-blocked.txt /etc/quietwrt/workday-blocked.txt /etc/quietwrt/after-work-blocked.txt; do
   if [ ! -f "$path" ]; then
     echo "$path"
     missing=1
@@ -781,9 +900,11 @@ exit $missing
     try {
         Receive-QuietWrtSftpItem -Session $Connection.SftpSession -Path $script:QuietWrtRemotePaths.AlwaysListPath -Destination $tempDir | Out-Null
         Receive-QuietWrtSftpItem -Session $Connection.SftpSession -Path $script:QuietWrtRemotePaths.WorkdayListPath -Destination $tempDir | Out-Null
+        Receive-QuietWrtSftpItem -Session $Connection.SftpSession -Path $script:QuietWrtRemotePaths.AfterWorkListPath -Destination $tempDir | Out-Null
 
         Move-Item -LiteralPath (Join-Path $tempDir 'always-blocked.txt') -Destination $destination.Always -Force
         Move-Item -LiteralPath (Join-Path $tempDir 'workday-blocked.txt') -Destination $destination.Workday -Force
+        Move-Item -LiteralPath (Join-Path $tempDir 'after-work-blocked.txt') -Destination $destination.AfterWork -Force
     } finally {
         Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -802,7 +923,7 @@ function Restore-QuietWrtBlocklists {
     }
 
     $selection = Get-QuietWrtLatestBackupSelection -BackupDirectory $BackupDirectory
-    if ($null -eq $selection.Always -and $null -eq $selection.Workday) {
+    if ($null -eq $selection.Always -and $null -eq $selection.Workday -and $null -eq $selection.AfterWork) {
         throw "No backup files were found in $BackupDirectory."
     }
 
@@ -813,6 +934,9 @@ function Restore-QuietWrtBlocklists {
     }
     if ($selection.Workday) {
         Write-Host "  Workday: $($selection.Workday.Name)"
+    }
+    if ($selection.AfterWork) {
+        Write-Host "  After work: $($selection.AfterWork.Name)"
     }
 
     $confirmation = Read-Host -Prompt 'Restore these backup files to the router? [y/N]'
@@ -838,6 +962,12 @@ function Restore-QuietWrtBlocklists {
             $restoreArgs += @('--workday', $remoteWorkday)
         }
 
+        if ($selection.AfterWork) {
+            $remoteAfterWork = "$remoteRoot/$($selection.AfterWork.Name)"
+            Send-QuietWrtSftpItem -Session $Connection.SftpSession -Path $selection.AfterWork.FullName -Destination $remoteRoot | Out-Null
+            $restoreArgs += @('--after-work', $remoteAfterWork)
+        }
+
         $command = '/usr/bin/quietwrtctl restore ' + ($restoreArgs -join ' ')
         Invoke-QuietWrtRemote -Connection $Connection -Command $command -TimeoutSeconds 120 | Out-Null
     } finally {
@@ -855,7 +985,6 @@ function Show-QuietWrtStatus {
     Write-Host ''
     Write-Host 'QuietWrt Status'
     Write-Host "  Installed: $(if ($Status.installed) { 'yes' } else { 'no' })"
-    Write-Host "  Mode: $($Status.mode_label)"
 
     $protection = if ($null -eq $Status.protection_enabled) {
         'unknown'
@@ -869,9 +998,23 @@ function Show-QuietWrtStatus {
     Write-Host "  Enforcement ready: $(if ($Status.enforcement_ready) { 'yes' } else { 'no' })"
     Write-Host "  Always blocklist: $(if ($Status.always_enabled) { 'enabled' } else { 'disabled' })"
     Write-Host "  Workday blocklist: $(if ($Status.workday_enabled) { 'enabled' } else { 'disabled' })"
+    Write-Host "  Workday active now: $(if ($Status.workday_active) { 'yes' } else { 'no' })"
+    if ($Status.schedule.workday) {
+        Write-Host "  Workday window: $(Get-QuietWrtWindowSummary -Start $Status.schedule.workday.start -End $Status.schedule.workday.end)"
+    }
+    Write-Host "  After work blocklist: $(if ($Status.after_work_enabled) { 'enabled' } else { 'disabled' })"
+    Write-Host "  After work active now: $(if ($Status.after_work_active) { 'yes' } else { 'no' })"
+    if ($Status.schedule.after_work) {
+        Write-Host "  After work window: $(Get-QuietWrtWindowSummary -Start $Status.schedule.after_work.start -End $Status.schedule.after_work.end)"
+    }
     Write-Host "  Overnight blocking: $(if ($Status.overnight_enabled) { 'enabled' } else { 'disabled' })"
+    Write-Host "  Overnight active now: $(if ($Status.overnight_active) { 'yes' } else { 'no' })"
+    if ($Status.schedule.overnight) {
+        Write-Host "  Overnight window: $(Get-QuietWrtWindowSummary -Start $Status.schedule.overnight.start -End $Status.schedule.overnight.end)"
+    }
     Write-Host "  Always entries: $($Status.always_count)"
     Write-Host "  Workday entries: $($Status.workday_count)"
+    Write-Host "  After work entries: $($Status.after_work_count)"
     Write-Host "  Active rules: $($Status.active_rule_count)"
     Write-Host "  DNS intercept hardening: $(if ($Status.hardening.dns_intercept) { 'yes' } else { 'no' })"
     Write-Host "  DoT blocking hardening: $(if ($Status.hardening.dot_block) { 'yes' } else { 'no' })"
@@ -891,9 +1034,13 @@ function Get-QuietWrtMenuLines {
         '1. Install/Update QuietWrt'
         "2. $(if ($Status.always_enabled) { 'Disable' } else { 'Enable' }) always-on blocklist"
         "3. $(if ($Status.workday_enabled) { 'Disable' } else { 'Enable' }) workday blocklist"
-        "4. $(if ($Status.overnight_enabled) { 'Disable' } else { 'Enable' }) overnight blocking"
-        '5. Backup both blocklists to this PC'
-        '6. Restore latest backup'
+        "4. $(if ($Status.after_work_enabled) { 'Disable' } else { 'Enable' }) after-work blocklist"
+        "5. $(if ($Status.overnight_enabled) { 'Disable' } else { 'Enable' }) overnight blocking"
+        '6. Set workday window'
+        '7. Set after-work window'
+        '8. Set overnight window'
+        '9. Backup all blocklists to this PC'
+        '10. Restore latest backup'
         '0. Exit'
     )
 }
@@ -947,7 +1094,7 @@ function Invoke-QuietWrtMenuSelection {
             }
         }
         '4' {
-            $updatedStatus = Set-QuietWrtToggleState -Connection $Connection -ToggleName 'overnight' -Enabled (-not [bool]$Status.overnight_enabled)
+            $updatedStatus = Set-QuietWrtToggleState -Connection $Connection -ToggleName 'after_work' -Enabled (-not [bool]$Status.after_work_enabled)
             Show-QuietWrtStatus -Status $updatedStatus
             return [pscustomobject]@{
                 Continue = $true
@@ -956,18 +1103,55 @@ function Invoke-QuietWrtMenuSelection {
             }
         }
         '5' {
+            $updatedStatus = Set-QuietWrtToggleState -Connection $Connection -ToggleName 'overnight' -Enabled (-not [bool]$Status.overnight_enabled)
+            Show-QuietWrtStatus -Status $updatedStatus
+            return [pscustomobject]@{
+                Continue = $true
+                Status = $updatedStatus
+                BackupPaths = $null
+            }
+        }
+        '6' {
+            $updatedStatus = Update-QuietWrtScheduleWindow -Connection $Connection -ScheduleName 'workday' -Status $Status
+            Show-QuietWrtStatus -Status $updatedStatus
+            return [pscustomobject]@{
+                Continue = $true
+                Status = $updatedStatus
+                BackupPaths = $null
+            }
+        }
+        '7' {
+            $updatedStatus = Update-QuietWrtScheduleWindow -Connection $Connection -ScheduleName 'after_work' -Status $Status
+            Show-QuietWrtStatus -Status $updatedStatus
+            return [pscustomobject]@{
+                Continue = $true
+                Status = $updatedStatus
+                BackupPaths = $null
+            }
+        }
+        '8' {
+            $updatedStatus = Update-QuietWrtScheduleWindow -Connection $Connection -ScheduleName 'overnight' -Status $Status
+            Show-QuietWrtStatus -Status $updatedStatus
+            return [pscustomobject]@{
+                Continue = $true
+                Status = $updatedStatus
+                BackupPaths = $null
+            }
+        }
+        '9' {
             $backupPaths = Backup-QuietWrtBlocklists -Connection $Connection -OutputDirectory $BackupDirectory
             Write-Host ''
             Write-Host 'Saved backups:'
             Write-Host "  $($backupPaths.Always)"
             Write-Host "  $($backupPaths.Workday)"
+            Write-Host "  $($backupPaths.AfterWork)"
             return [pscustomobject]@{
                 Continue = $true
                 Status = $Status
                 BackupPaths = $backupPaths
             }
         }
-        '6' {
+        '10' {
             $updatedStatus = Restore-QuietWrtBlocklists -Connection $Connection -BackupDirectory $BackupDirectory
             Show-QuietWrtStatus -Status $updatedStatus
             return [pscustomobject]@{

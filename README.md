@@ -2,18 +2,21 @@
 
 QuietWrt is a router-side distraction blocking setup for a `GL.iNet GL-MT3000` running stock GL firmware with `AdGuard Home`.
 
-It keeps two canonical blocklists on the router:
+It keeps three canonical blocklists on the router:
 
 - `always blocked`
 - `workday blocked`
+- `after work blocked`
 
-It can also enforce a nightly curfew by blocking `LAN -> WAN` traffic from `18:30` to `04:00` when overnight blocking is enabled.
+It can also enforce a nightly curfew by blocking `LAN -> WAN` traffic from `19:00` to `04:00` when overnight blocking is enabled.
 
 ## Schedule
 
 - `04:00` to `16:30`: `always + workday`
-- `16:30` to `18:30`: `always` only
-- `18:30` to `04:00`: internet off
+- `16:30` to `19:00`: `always + after work`
+- `19:00` to `04:00`: internet off when overnight blocking is enabled
+
+You can change the `workday`, `after work`, and `overnight` windows later from the PowerShell CLI or with `quietwrtctl schedule ...`.
 
 ## How It Works
 
@@ -22,13 +25,14 @@ It can also enforce a nightly curfew by blocking `LAN -> WAN` traffic from `18:3
 - QuietWrt stores canonical list files in `/etc/quietwrt/`
 - firewall rules reduce DNS bypass and enforce the nightly curfew
 - a boot-time sync plus recurring sync jobs keep policy aligned after reboot and across schedule transitions
-- a small LAN page can append new entries to either list
-- a Windows PowerShell CLI installs, updates, toggles, backs up, and restores QuietWrt over SSH
+- a small LAN page can append new entries to any scheduled blocklist
+- a Windows PowerShell CLI installs, updates, toggles, edits schedule windows, backs up, and restores QuietWrt over SSH
 
 Fresh installs default to:
 
 - `always`: enabled
 - `workday`: enabled
+- `after work`: enabled
 - `overnight`: disabled
 
 ## Run It
@@ -42,9 +46,10 @@ pwsh ./tools/quietwrt.ps1
 The local CLI can:
 
 - install or update QuietWrt
-- enable or disable the `always`, `workday`, and `overnight` toggles
+- enable or disable the `always`, `workday`, `after work`, and `overnight` toggles
+- change the `workday`, `after work`, and `overnight` schedule windows
 - save router blocklist backups into `backups/`
-- restore the newest matching `quietwrt-always-*` and `quietwrt-workday-*` backups
+- restore the newest matching `quietwrt-always-*`, `quietwrt-workday-*`, and `quietwrt-after-work-*` backups
 
 Detailed setup and operating instructions live in `docs/router-install.md`.
 

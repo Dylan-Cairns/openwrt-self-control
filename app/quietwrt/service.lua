@@ -5,11 +5,30 @@ local util = require("quietwrt.util")
 
 local M = {}
 
-local QUIETWRT_SCHEMA_VERSION = "1"
+local QUIETWRT_SCHEMA_VERSION = "2"
 local MANAGED_FIREWALL_SECTIONS = {
   "quietwrt_dns_int",
   "quietwrt_dot_fwd",
   "quietwrt_curfew",
+}
+
+local HOST_LISTS = {
+  { name = "always", key = "always_hosts", path_key = "always_list_path" },
+  { name = "workday", key = "workday_hosts", path_key = "workday_list_path" },
+  { name = "after_work", key = "after_work_hosts", path_key = "after_work_list_path" },
+}
+
+local SCHEDULES = {
+  { name = "workday", start_key = "workday_start", end_key = "workday_end" },
+  { name = "after_work", start_key = "after_work_start", end_key = "after_work_end" },
+  { name = "overnight", start_key = "overnight_start", end_key = "overnight_end" },
+}
+
+local TOGGLES = {
+  { name = "always", key = "always_enabled" },
+  { name = "workday", key = "workday_enabled" },
+  { name = "after_work", key = "after_work_enabled" },
+  { name = "overnight", key = "overnight_enabled" },
 }
 
 local function default_ensure_dir(path)
@@ -44,6 +63,7 @@ local function default_paths()
     data_dir = data_dir,
     always_list_path = data_dir .. "/always-blocked.txt",
     workday_list_path = data_dir .. "/workday-blocked.txt",
+    after_work_list_path = data_dir .. "/after-work-blocked.txt",
     passthrough_rules_path = data_dir .. "/passthrough-rules.txt",
     restart_adguard_command = "/etc/init.d/adguardhome restart >/tmp/quietwrt-adguard-restart.log 2>&1",
     crontab_path = "/etc/crontabs/root",
@@ -115,10 +135,12 @@ local function enforcement_error(paths, parsed_config)
   end
 
   if parsed_config.protection_enabled == false then
-    return "AdGuard Home protection is disabled in " .. paths.config_path .. ". QuietWrt cannot enforce blocklists until it is enabled."
+    return "AdGuard Home protection is disabled in " .. paths.config_path
+      .. ". QuietWrt cannot enforce blocklists until it is enabled."
   end
 
-  return "Could not confirm that AdGuard Home protection is enabled in " .. paths.config_path .. ". QuietWrt fails closed until it is enabled."
+  return "Could not confirm that AdGuard Home protection is enabled in " .. paths.config_path
+    .. ". QuietWrt fails closed until it is enabled."
 end
 
 local function is_enforcement_ready(paths, parsed_config)
@@ -183,17 +205,31 @@ local function empty_lists_state()
   return {
     always_hosts = {},
     workday_hosts = {},
+    after_work_hosts = {},
     passthrough_rules = {},
     bootstrapped = false,
   }
 end
 
-local function read_lists(env, paths)
+local function clone_lists(lists)
   return {
-    always_content = env.read_file(paths.always_list_path),
-    workday_content = env.read_file(paths.workday_list_path),
+    always_hosts = util.clone_array(lists.always_hosts),
+    workday_hosts = util.clone_array(lists.workday_hosts),
+    after_work_hosts = util.clone_array(lists.after_work_hosts),
+    passthrough_rules = util.clone_array(lists.passthrough_rules),
+  }
+end
+
+local function read_lists(env, paths)
+  local existing = {
     passthrough_content = env.read_file(paths.passthrough_rules_path),
   }
+
+  for _, definition in ipairs(HOST_LISTS) do
+    existing[definition.name .. "_content"] = env.read_file(paths[definition.path_key])
+  end
+
+  return existing
 end
 
 local function persist_selected_lists(env, paths, data)
@@ -203,18 +239,14 @@ local function persist_selected_lists(env, paths, data)
   end
 
   local writes = {}
-  if data.always_hosts ~= nil then
-    table.insert(writes, {
-      path = paths.always_list_path,
-      content = rules.serialize_hosts_file(data.always_hosts),
-    })
-  end
-
-  if data.workday_hosts ~= nil then
-    table.insert(writes, {
-      path = paths.workday_list_path,
-      content = rules.serialize_hosts_file(data.workday_hosts),
-    })
+  for _, definition in ipairs(HOST_LISTS) do
+    local hosts = data[definition.key]
+    if hosts ~= nil then
+      table.insert(writes, {
+        path = paths[definition.path_key],
+        content = rules.serialize_hosts_file(hosts),
+      })
+    end
   end
 
   if data.passthrough_rules ~= nil then
@@ -238,17 +270,17 @@ local function persist_lists(env, paths, data)
   return persist_selected_lists(env, paths, {
     always_hosts = data.always_hosts,
     workday_hosts = data.workday_hosts,
+    after_work_hosts = data.after_work_hosts,
     passthrough_rules = data.passthrough_rules,
   })
 end
 
 local function missing_list_paths(existing, paths)
   local missing = {}
-  if existing.always_content == nil then
-    table.insert(missing, paths.always_list_path)
-  end
-  if existing.workday_content == nil then
-    table.insert(missing, paths.workday_list_path)
+  for _, definition in ipairs(HOST_LISTS) do
+    if existing[definition.name .. "_content"] == nil then
+      table.insert(missing, paths[definition.path_key])
+    end
   end
   if existing.passthrough_content == nil then
     table.insert(missing, paths.passthrough_rules_path)
@@ -257,61 +289,34 @@ local function missing_list_paths(existing, paths)
 end
 
 local function parse_existing_lists(existing, paths)
-  local always_hosts, always_error = rules.load_hosts_file(existing.always_content, paths.always_list_path)
-  if not always_hosts then
-    return nil, always_error
-  end
+  local parsed = {
+    passthrough_rules = {},
+    bootstrapped = false,
+  }
 
-  local workday_hosts, workday_error = rules.load_hosts_file(existing.workday_content, paths.workday_list_path)
-  if not workday_hosts then
-    return nil, workday_error
+  for _, definition in ipairs(HOST_LISTS) do
+    local hosts, host_error = rules.load_hosts_file(existing[definition.name .. "_content"], paths[definition.path_key])
+    if not hosts then
+      return nil, host_error
+    end
+    parsed[definition.key] = hosts
   end
 
   local passthrough_rules, passthrough_error = rules.load_rules_file(existing.passthrough_content, paths.passthrough_rules_path)
   if not passthrough_rules then
     return nil, passthrough_error
   end
+  parsed.passthrough_rules = passthrough_rules
 
-  return {
-    always_hosts = always_hosts,
-    workday_hosts = workday_hosts,
-    passthrough_rules = passthrough_rules,
-    bootstrapped = false,
-  }, nil
-end
-
-local function detect_legacy_install(env, paths)
-  local setting_markers = {
-    env.capture("uci -q get quietwrt.settings.always_enabled"),
-    env.capture("uci -q get quietwrt.settings.workday_enabled"),
-    env.capture("uci -q get quietwrt.settings.overnight_enabled"),
-  }
-
-  for _, marker in ipairs(setting_markers) do
-    if util.trim(marker or "") ~= "" then
-      return true
-    end
-  end
-
-  return env.file_exists(paths.always_list_path)
-    or env.file_exists(paths.workday_list_path)
-    or env.file_exists(paths.passthrough_rules_path)
+  return parsed, nil
 end
 
 local function read_install_state(env, paths)
   local schema_version = util.trim(env.capture("uci -q get quietwrt.settings.schema_version") or "")
-  local installed = schema_version == QUIETWRT_SCHEMA_VERSION
-  local legacy = false
-
-  if not installed and detect_legacy_install(env, paths) then
-    installed = true
-    legacy = true
-  end
-
   return {
-    installed = installed,
-    legacy = legacy,
+    installed = schema_version == QUIETWRT_SCHEMA_VERSION,
     schema_version = schema_version ~= "" and schema_version or nil,
+    settings_path_present = env.file_exists(paths.settings_config_path),
   }
 end
 
@@ -321,9 +326,11 @@ local function load_lists(env, paths, parsed_config, options)
   local existing = read_lists(env, paths)
   local have_all_lists = existing.always_content ~= nil
     and existing.workday_content ~= nil
+    and existing.after_work_content ~= nil
     and existing.passthrough_content ~= nil
   local have_no_lists = existing.always_content == nil
     and existing.workday_content == nil
+    and existing.after_work_content == nil
     and existing.passthrough_content == nil
 
   if have_all_lists then
@@ -335,6 +342,7 @@ local function load_lists(env, paths, parsed_config, options)
     local bootstrapped = {
       always_hosts = always_hosts,
       workday_hosts = {},
+      after_work_hosts = {},
       passthrough_rules = passthrough_rules,
       bootstrapped = true,
     }
@@ -354,12 +362,102 @@ local function load_lists(env, paths, parsed_config, options)
   return nil, "QuietWrt canonical list state is incomplete. Missing: " .. table.concat(missing_list_paths(existing, paths), ", ")
 end
 
-local function read_settings(env, fallback_enabled)
-  local fallback = fallback_enabled == true
+local function read_required_bool(env, option_name)
+  local raw = util.trim(env.capture("uci -q get quietwrt.settings." .. option_name) or "")
+  if raw == "" then
+    return nil, "Missing QuietWrt setting quietwrt.settings." .. option_name .. "."
+  end
+
+  local value = uci_to_bool(raw, nil)
+  if value == nil then
+    return nil, "Invalid QuietWrt setting quietwrt.settings." .. option_name .. "."
+  end
+
+  return value, nil
+end
+
+local function read_required_hhmm(env, option_name, label)
+  local raw = util.trim(env.capture("uci -q get quietwrt.settings." .. option_name) or "")
+  if raw == "" then
+    return nil, "Missing QuietWrt setting quietwrt.settings." .. option_name .. "."
+  end
+
+  local normalized, err = schedule.normalize_hhmm(raw)
+  if not normalized then
+    return nil, label .. ": " .. err
+  end
+
+  return normalized, nil
+end
+
+local function read_settings(env, installed)
+  if installed ~= true then
+    return {
+      always_enabled = false,
+      workday_enabled = false,
+      after_work_enabled = false,
+      overnight_enabled = false,
+      schema_version = nil,
+    }, nil
+  end
+
+  local settings = {
+    schema_version = QUIETWRT_SCHEMA_VERSION,
+  }
+
+  for _, toggle in ipairs(TOGGLES) do
+    local value, err = read_required_bool(env, toggle.key)
+    if value == nil then
+      return nil, err
+    end
+    settings[toggle.key] = value
+  end
+
+  for _, definition in ipairs(SCHEDULES) do
+    local start_value, start_error = read_required_hhmm(env, definition.start_key, schedule.window_label(definition.name) .. " start time")
+    if start_value == nil then
+      return nil, start_error
+    end
+
+    local end_value, end_error = read_required_hhmm(env, definition.end_key, schedule.window_label(definition.name) .. " end time")
+    if end_value == nil then
+      return nil, end_error
+    end
+
+    local window, window_error = schedule.build_window(definition.name, start_value, end_value)
+    if not window then
+      return nil, window_error
+    end
+
+    settings[definition.start_key] = window.start
+    settings[definition.end_key] = window["end"]
+  end
+
+  return settings, nil
+end
+
+local function copy_settings(settings)
+  local copied = {}
+  for key, value in pairs(settings or {}) do
+    copied[key] = value
+  end
+  return copied
+end
+
+local function default_install_settings()
+  local defaults = schedule.default_windows()
   return {
-    always_enabled = uci_to_bool(env.capture("uci -q get quietwrt.settings.always_enabled"), fallback),
-    workday_enabled = uci_to_bool(env.capture("uci -q get quietwrt.settings.workday_enabled"), fallback),
-    overnight_enabled = uci_to_bool(env.capture("uci -q get quietwrt.settings.overnight_enabled"), fallback),
+    always_enabled = true,
+    workday_enabled = true,
+    after_work_enabled = true,
+    overnight_enabled = false,
+    workday_start = defaults.workday.start,
+    workday_end = defaults.workday["end"],
+    after_work_start = defaults.after_work.start,
+    after_work_end = defaults.after_work["end"],
+    overnight_start = defaults.overnight.start,
+    overnight_end = defaults.overnight["end"],
+    schema_version = QUIETWRT_SCHEMA_VERSION,
   }
 end
 
@@ -374,10 +472,16 @@ local function write_settings(env, paths, settings, schema_version)
   local commands = {
     "uci -q delete quietwrt.settings >/dev/null 2>&1 || true",
     "uci set quietwrt.settings='settings'",
-    "uci set quietwrt.settings.always_enabled='" .. bool_to_uci(settings.always_enabled) .. "'",
-    "uci set quietwrt.settings.workday_enabled='" .. bool_to_uci(settings.workday_enabled) .. "'",
-    "uci set quietwrt.settings.overnight_enabled='" .. bool_to_uci(settings.overnight_enabled) .. "'",
   }
+
+  for _, toggle in ipairs(TOGGLES) do
+    table.insert(commands, "uci set quietwrt.settings." .. toggle.key .. "='" .. bool_to_uci(settings[toggle.key]) .. "'")
+  end
+
+  for _, definition in ipairs(SCHEDULES) do
+    table.insert(commands, "uci set quietwrt.settings." .. definition.start_key .. "='" .. tostring(settings[definition.start_key]) .. "'")
+    table.insert(commands, "uci set quietwrt.settings." .. definition.end_key .. "='" .. tostring(settings[definition.end_key]) .. "'")
+  end
 
   if schema_version ~= nil then
     table.insert(commands, "uci set quietwrt.settings.schema_version='" .. tostring(schema_version) .. "'")
@@ -385,38 +489,6 @@ local function write_settings(env, paths, settings, schema_version)
 
   table.insert(commands, "uci commit quietwrt")
   return run_commands(env, commands)
-end
-
-local function resolve_settings(env, paths, settings, options)
-  local current = read_settings(env, true)
-  local install_state = read_install_state(env, paths)
-  local desired = {
-    always_enabled = settings and settings.always_enabled,
-    workday_enabled = settings and settings.workday_enabled,
-    overnight_enabled = settings and settings.overnight_enabled,
-  }
-
-  if desired.always_enabled == nil then
-    desired.always_enabled = current.always_enabled
-  end
-
-  if desired.workday_enabled == nil then
-    desired.workday_enabled = current.workday_enabled
-  end
-
-  if desired.overnight_enabled == nil then
-    desired.overnight_enabled = current.overnight_enabled
-  end
-
-  local desired_schema_version = nil
-  if options and options.schema_version ~= nil then
-    desired_schema_version = options.schema_version
-  elseif install_state.schema_version ~= nil then
-    desired_schema_version = install_state.schema_version
-  end
-
-  desired.schema_version = desired_schema_version
-  return desired
 end
 
 local function persist_settings(env, paths, settings)
@@ -428,33 +500,89 @@ local function persist_settings(env, paths, settings)
   return false, "QuietWrt settings update failed while running: " .. failed_command
 end
 
-local function ensure_settings(env, paths, settings, options)
-  local desired = resolve_settings(env, paths, settings, options)
-  return persist_settings(env, paths, desired)
+local function build_schedule_windows(settings)
+  local windows = {}
+  for _, definition in ipairs(SCHEDULES) do
+    local window, err = schedule.build_window(
+      definition.name,
+      settings[definition.start_key],
+      settings[definition.end_key]
+    )
+    if not window then
+      return nil, err
+    end
+    windows[definition.name] = window
+  end
+  return windows, nil
 end
 
-local function build_active_hosts(lists, settings, scheduled_mode)
-  local always_hosts = {}
-  local workday_hosts = {}
+local function build_runtime_activity(settings, now_table)
+  local windows, err = build_schedule_windows(settings)
+  if not windows then
+    return nil, err
+  end
 
+  local workday_window_active = schedule.window_contains(windows.workday, now_table)
+  local after_work_window_active = schedule.window_contains(windows.after_work, now_table)
+  local overnight_window_active = schedule.window_contains(windows.overnight, now_table)
+
+  return {
+    schedule = windows,
+    workday_window_active = workday_window_active,
+    after_work_window_active = after_work_window_active,
+    overnight_window_active = overnight_window_active,
+    workday_active = settings.workday_enabled and workday_window_active,
+    after_work_active = settings.after_work_enabled and after_work_window_active,
+    overnight_active = settings.overnight_enabled and overnight_window_active,
+  }, nil
+end
+
+local function build_active_hosts(lists, settings, activity)
+  local always_hosts = {}
   if settings.always_enabled then
     always_hosts = lists.always_hosts
   end
 
-  if scheduled_mode.code == "always_and_workday" and settings.workday_enabled then
-    workday_hosts = lists.workday_hosts
+  local scheduled_hosts = {}
+  if activity.workday_active then
+    for _, host in ipairs(lists.workday_hosts or {}) do
+      table.insert(scheduled_hosts, host)
+    end
   end
 
-  return always_hosts, workday_hosts
+  if activity.after_work_active then
+    for _, host in ipairs(lists.after_work_hosts or {}) do
+      table.insert(scheduled_hosts, host)
+    end
+  end
+
+  return always_hosts, util.sorted_unique(scheduled_hosts)
 end
 
-local function build_view_state(parsed_config, lists, settings, current_mode, scheduled_mode, hardening_state, installed, enforcement_ready)
-  local active_always_hosts, active_workday_hosts = build_active_hosts(lists, settings, scheduled_mode)
+local function serialize_window(window)
+  return {
+    start = window.start,
+    ["end"] = window["end"],
+    display_start = window.display_start,
+    display_end = window.display_end,
+    overnight = window.overnight,
+  }
+end
+
+local function serialize_schedule_windows(windows)
+  return {
+    workday = serialize_window(windows.workday),
+    after_work = serialize_window(windows.after_work),
+    overnight = serialize_window(windows.overnight),
+  }
+end
+
+local function build_view_state(parsed_config, lists, settings, activity, hardening_state, installed, enforcement_ready)
+  local active_always_hosts, active_scheduled_hosts = build_active_hosts(lists, settings, activity)
   local active_rules = rules.compile_active_rules(
     active_always_hosts,
-    active_workday_hosts,
-    lists.passthrough_rules,
-    { code = "always_and_workday" }
+    active_scheduled_hosts,
+    lists.passthrough_rules
   )
 
   local protection_enabled = nil
@@ -466,13 +594,20 @@ local function build_view_state(parsed_config, lists, settings, current_mode, sc
     installed = installed,
     protection_enabled = protection_enabled,
     enforcement_ready = enforcement_ready,
-    current_mode = current_mode,
     settings = settings,
+    schedule = serialize_schedule_windows(activity.schedule),
     always_hosts = lists.always_hosts,
     workday_hosts = lists.workday_hosts,
+    after_work_hosts = lists.after_work_hosts,
     passthrough_rules = lists.passthrough_rules,
     active_rules = active_rules,
     active_rule_count = #active_rules,
+    workday_window_active = activity.workday_window_active,
+    after_work_window_active = activity.after_work_window_active,
+    overnight_window_active = activity.overnight_window_active,
+    workday_active = activity.workday_active,
+    after_work_active = activity.after_work_active,
+    overnight_active = activity.overnight_active,
     hardening = hardening_state,
     warnings = {},
   }
@@ -491,60 +626,6 @@ end
 
 local function detect_installed(env, paths)
   return read_install_state(env, paths).installed
-end
-
-local function current_effective_mode(settings, now_table)
-  local scheduled_mode = schedule.mode_at(now_table)
-
-  if scheduled_mode.code == "internet_off" and not settings.overnight_enabled then
-    return {
-      code = "disabled_overnight",
-      label = "Overnight block disabled",
-      description = "Internet remains available because overnight blocking is disabled.",
-    }, scheduled_mode
-  end
-
-  if scheduled_mode.code == "always_only" and not settings.always_enabled then
-    return {
-      code = "lists_disabled",
-      label = "Lists disabled",
-      description = "No blocklists are currently active.",
-    }, scheduled_mode
-  end
-
-  if scheduled_mode.code == "always_and_workday" then
-    if settings.always_enabled and settings.workday_enabled then
-      return {
-        code = "always_and_workday",
-        label = "Always + Workday",
-        description = "Both Always blocked and Workday blocked are active.",
-      }, scheduled_mode
-    end
-
-    if settings.always_enabled then
-      return {
-        code = "always_only",
-        label = "Always only",
-        description = "Only the Always blocked list is active.",
-      }, scheduled_mode
-    end
-
-    if settings.workday_enabled then
-      return {
-        code = "workday_only",
-        label = "Workday only",
-        description = "Only the Workday blocked list is active.",
-      }, scheduled_mode
-    end
-
-    return {
-      code = "lists_disabled",
-      label = "Lists disabled",
-      description = "No blocklists are currently active.",
-    }, scheduled_mode
-  end
-
-  return scheduled_mode, scheduled_mode
 end
 
 local function hardening_status(env)
@@ -675,16 +756,49 @@ local function commit_firewall_snapshot(env, paths, snapshot)
   return false, "Firewall update failed while running: " .. failed_command
 end
 
-local function build_cron_block(paths)
-  return table.concat({
+local function build_cron_block(paths, settings)
+  local boundaries = {}
+  local seen = {}
+
+  for _, definition in ipairs(SCHEDULES) do
+    for _, key in ipairs({ definition.start_key, definition.end_key }) do
+      local hhmm = settings[key]
+      if not seen[hhmm] then
+        local minutes, minutes_error = schedule.minutes_of_hhmm(hhmm)
+        if minutes == nil then
+          return nil, minutes_error
+        end
+
+        local spec, spec_error = schedule.cron_spec(hhmm)
+        if spec == nil then
+          return nil, spec_error
+        end
+
+        table.insert(boundaries, {
+          minutes = minutes,
+          spec = spec,
+        })
+        seen[hhmm] = true
+      end
+    end
+  end
+
+  table.sort(boundaries, function(left, right)
+    return left.minutes < right.minutes
+  end)
+
+  local lines = {
     "# BEGIN quietwrt schedule",
     "*/10 * * * * " .. paths.quietwrtctl_path .. " sync",
-    "0 4 * * * " .. paths.quietwrtctl_path .. " sync",
-    "30 16 * * * " .. paths.quietwrtctl_path .. " sync",
-    "30 18 * * * " .. paths.quietwrtctl_path .. " sync",
-    "# END quietwrt schedule",
-    "",
-  }, "\n")
+  }
+
+  for _, boundary in ipairs(boundaries) do
+    table.insert(lines, boundary.spec .. " " .. paths.quietwrtctl_path .. " sync")
+  end
+
+  table.insert(lines, "# END quietwrt schedule")
+  table.insert(lines, "")
+  return table.concat(lines, "\n"), nil
 end
 
 local function strip_cron_block(original)
@@ -694,15 +808,20 @@ local function strip_cron_block(original)
     :gsub("%s+$", "")
 end
 
-local function install_schedule(env, paths)
+local function install_schedule(env, paths, settings)
+  local cron_block, cron_error = build_cron_block(paths, settings)
+  if not cron_block then
+    return false, cron_error
+  end
+
   local original = env.read_file(paths.crontab_path) or ""
   local without_existing = strip_cron_block(original)
 
   local updated
   if without_existing == "" then
-    updated = build_cron_block(paths)
+    updated = cron_block
   else
-    updated = without_existing .. "\n\n" .. build_cron_block(paths)
+    updated = without_existing .. "\n\n" .. cron_block
   end
 
   local saved, save_error = write_atomic(env, paths.crontab_path, updated)
@@ -768,6 +887,7 @@ local function remove_bootstrapped_lists(env, paths)
   for _, path in ipairs({
     paths.always_list_path,
     paths.workday_list_path,
+    paths.after_work_list_path,
     paths.passthrough_rules_path,
   }) do
     env.remove_file(path)
@@ -887,6 +1007,13 @@ local function rollback_install(context, rollback_state)
     end
   end
 
+  if rollback_state.original_settings ~= nil then
+    local settings_ok, settings_error = persist_settings(context.env, context.paths, rollback_state.original_settings)
+    if not settings_ok then
+      table.insert(rollback_errors, settings_error)
+    end
+  end
+
   return rollback_errors
 end
 
@@ -898,65 +1025,99 @@ local function append_rollback_errors(message, rollback_errors)
   return message .. " Rollback issues: " .. table.concat(rollback_errors, " | ")
 end
 
+local function uninstalled_snapshot(now_table)
+  return {
+    installed = false,
+    protection_enabled = nil,
+    enforcement_ready = false,
+    settings = {
+      always_enabled = false,
+      workday_enabled = false,
+      after_work_enabled = false,
+      overnight_enabled = false,
+    },
+    schedule = {},
+    always_hosts = {},
+    workday_hosts = {},
+    after_work_hosts = {},
+    passthrough_rules = {},
+    active_rules = {},
+    active_rule_count = 0,
+    workday_window_active = false,
+    after_work_window_active = false,
+    overnight_window_active = false,
+    workday_active = false,
+    after_work_active = false,
+    overnight_active = false,
+    hardening = {
+      dns_intercept = false,
+      dot_block = false,
+      overnight_rule = false,
+    },
+    warnings = {},
+    router_time = format_router_time(now_table),
+  }
+end
+
 local function status_snapshot(context)
   local install_state = read_install_state(context.env, context.paths)
-  local installed = install_state.installed
-  local settings = read_settings(context.env, installed)
   local now_table = context.env.now()
-  local parsed_config, config_error = read_adguard_state(context.env, context.paths)
-  local lists = empty_lists_state()
-  local warnings = {}
-  local enforcement_ready = false
 
-  if not parsed_config then
-    table.insert(warnings, config_error)
-  else
-    enforcement_ready = is_enforcement_ready(context.paths, parsed_config)
-    local enforcement_warning = enforcement_error(context.paths, parsed_config)
-    if enforcement_warning then
-      table.insert(warnings, enforcement_warning)
-    end
-
-    local loaded_lists, list_error = load_lists(context.env, context.paths, parsed_config, {
-      installed = installed,
-      allow_bootstrap = false,
-    })
-    if not loaded_lists then
-      table.insert(warnings, list_error)
-    else
-      lists = loaded_lists
-    end
+  if not install_state.installed then
+    return uninstalled_snapshot(now_table), nil
   end
 
-  local effective_mode, scheduled_mode = current_effective_mode(settings, now_table)
-  local hardening = installed and hardening_status(context.env) or {
-    dns_intercept = false,
-    dot_block = false,
-    overnight_rule = false,
-  }
+  local parsed_config, config_error = read_adguard_state(context.env, context.paths)
+  if not parsed_config then
+    return nil, config_error
+  end
+
+  local settings, settings_error = read_settings(context.env, true)
+  if not settings then
+    return nil, settings_error
+  end
+
+  local lists, list_error = load_lists(context.env, context.paths, parsed_config, {
+    installed = true,
+    allow_bootstrap = false,
+  })
+  if not lists then
+    return nil, list_error
+  end
+
+  local activity, activity_error = build_runtime_activity(settings, now_table)
+  if not activity then
+    return nil, activity_error
+  end
+
+  local warnings = {}
+  local enforcement_ready = is_enforcement_ready(context.paths, parsed_config)
+  local enforcement_warning = enforcement_error(context.paths, parsed_config)
+  if enforcement_warning then
+    table.insert(warnings, enforcement_warning)
+  end
+
+  local hardening = hardening_status(context.env)
   local snapshot = build_view_state(
     parsed_config,
     lists,
     settings,
-    effective_mode,
-    scheduled_mode,
+    activity,
     hardening,
-    installed,
+    true,
     enforcement_ready
   )
-  snapshot.install_state = install_state
   snapshot.router_time = format_router_time(now_table)
-  snapshot.scheduled_mode = scheduled_mode
-  snapshot.workday_active = scheduled_mode.code == "always_and_workday" and settings.workday_enabled
-  snapshot.overnight_active = scheduled_mode.code == "internet_off" and settings.overnight_enabled
+  snapshot.install_state = install_state
   snapshot.warnings = warnings
-  return snapshot
+  return snapshot, nil
 end
 
 local function render_status_text(snapshot)
+  local schedule_snapshot = snapshot.schedule or {}
   local lines = {
     "Installed: " .. (snapshot.installed and "yes" or "no"),
-    "Mode: " .. snapshot.current_mode.label,
+    "Router time: " .. (snapshot.router_time or "Unknown"),
     "Protection: " .. (
       snapshot.protection_enabled == true and "enabled"
       or snapshot.protection_enabled == false and "disabled"
@@ -965,9 +1126,32 @@ local function render_status_text(snapshot)
     "Enforcement ready: " .. (snapshot.enforcement_ready and "yes" or "no"),
     "Always enabled: " .. (snapshot.settings.always_enabled and "yes" or "no"),
     "Workday enabled: " .. (snapshot.settings.workday_enabled and "yes" or "no"),
+    "Workday active now: " .. (snapshot.workday_active and "yes" or "no"),
+    "Workday window: " .. (
+      schedule_snapshot.workday and (schedule_snapshot.workday.display_start .. " to "
+        .. schedule_snapshot.workday.display_end
+        .. (schedule_snapshot.workday.overnight and " (overnight)" or ""))
+      or "unknown"
+    ),
+    "After work enabled: " .. (snapshot.settings.after_work_enabled and "yes" or "no"),
+    "After work active now: " .. (snapshot.after_work_active and "yes" or "no"),
+    "After work window: " .. (
+      schedule_snapshot.after_work and (schedule_snapshot.after_work.display_start .. " to "
+        .. schedule_snapshot.after_work.display_end
+        .. (schedule_snapshot.after_work.overnight and " (overnight)" or ""))
+      or "unknown"
+    ),
     "Overnight enabled: " .. (snapshot.settings.overnight_enabled and "yes" or "no"),
+    "Overnight active now: " .. (snapshot.overnight_active and "yes" or "no"),
+    "Overnight window: " .. (
+      schedule_snapshot.overnight and (schedule_snapshot.overnight.display_start .. " to "
+        .. schedule_snapshot.overnight.display_end
+        .. (schedule_snapshot.overnight.overnight and " (overnight)" or ""))
+      or "unknown"
+    ),
     "Always blocked: " .. tostring(#snapshot.always_hosts),
     "Workday blocked: " .. tostring(#snapshot.workday_hosts),
+    "After work blocked: " .. tostring(#snapshot.after_work_hosts),
     "Active rules: " .. tostring(snapshot.active_rule_count),
     "DNS intercept hardening: " .. (snapshot.hardening.dns_intercept and "yes" or "no"),
     "DoT block hardening: " .. (snapshot.hardening.dot_block and "yes" or "no"),
@@ -984,41 +1168,27 @@ end
 local function render_status_json(snapshot)
   return util.json_encode({
     installed = snapshot.installed,
-    mode = snapshot.current_mode.code,
-    mode_label = snapshot.current_mode.label,
-    scheduled_mode = snapshot.scheduled_mode.code,
+    router_time = snapshot.router_time,
     protection_enabled = snapshot.protection_enabled,
     enforcement_ready = snapshot.enforcement_ready,
     always_enabled = snapshot.settings.always_enabled,
     workday_enabled = snapshot.settings.workday_enabled,
+    after_work_enabled = snapshot.settings.after_work_enabled,
     overnight_enabled = snapshot.settings.overnight_enabled,
+    workday_window_active = snapshot.workday_window_active,
+    after_work_window_active = snapshot.after_work_window_active,
+    overnight_window_active = snapshot.overnight_window_active,
+    workday_active = snapshot.workday_active,
+    after_work_active = snapshot.after_work_active,
+    overnight_active = snapshot.overnight_active,
+    schedule = snapshot.schedule,
     always_count = #snapshot.always_hosts,
     workday_count = #snapshot.workday_hosts,
+    after_work_count = #snapshot.after_work_hosts,
     active_rule_count = snapshot.active_rule_count,
     hardening = snapshot.hardening,
     warnings = snapshot.warnings,
   })
-end
-
-function M.new_context(options)
-  options = options or {}
-  return {
-    env = default_env(options.env),
-    paths = options.paths or default_paths(),
-  }
-end
-
-function M.load_view_state(context)
-  local snapshot = status_snapshot(context)
-  if not snapshot.installed then
-    return nil, "QuietWrt is not installed."
-  end
-
-  if #snapshot.warnings > 0 then
-    return nil, snapshot.warnings[1]
-  end
-
-  return snapshot, nil
 end
 
 local function apply_mode(context, options)
@@ -1062,16 +1232,23 @@ local function apply_mode(context, options)
 
   local settings = options.settings
   if settings == nil then
-    settings = read_settings(context.env, true)
+    local settings_error
+    settings, settings_error = read_settings(context.env, true)
+    if not settings then
+      return false, settings_error
+    end
   end
 
-  local effective_mode, scheduled_mode = current_effective_mode(settings, context.env.now())
-  local active_always_hosts, active_workday_hosts = build_active_hosts(lists, settings, scheduled_mode)
+  local activity, activity_error = build_runtime_activity(settings, context.env.now())
+  if not activity then
+    return false, activity_error
+  end
+
+  local active_always_hosts, active_scheduled_hosts = build_active_hosts(lists, settings, activity)
   local compiled_rules = rules.compile_active_rules(
     active_always_hosts,
-    active_workday_hosts,
-    lists.passthrough_rules,
-    { code = "always_and_workday" }
+    active_scheduled_hosts,
+    lists.passthrough_rules
   )
 
   local updated_config = adguard.serialize_config(parsed_config, compiled_rules)
@@ -1086,7 +1263,7 @@ local function apply_mode(context, options)
     return false, adguard_error
   end
 
-  local curfew_enabled = scheduled_mode.code == "internet_off" and settings.overnight_enabled
+  local curfew_enabled = activity.overnight_active
   local previous_firewall = capture_firewall_snapshot(context.env)
   local desired_firewall = desired_firewall_snapshot(curfew_enabled)
   if not firewall_snapshots_equal(previous_firewall, desired_firewall) then
@@ -1115,11 +1292,119 @@ local function apply_mode(context, options)
   end
 
   return true, {
-    mode = effective_mode,
-    scheduled_mode = scheduled_mode,
+    settings = settings,
+    activity = activity,
     active_rule_count = #compiled_rules,
     bootstrapped = lists.bootstrapped,
   }
+end
+
+local function apply_settings_change(context, next_settings)
+  if not detect_installed(context.env, context.paths) then
+    return false, "QuietWrt is not installed."
+  end
+
+  local parsed_config, config_error = read_adguard_state(context.env, context.paths)
+  if not parsed_config then
+    return false, config_error
+  end
+
+  local enforcement_ok, enforcement_check_error = require_enforcement_ready(context.paths, parsed_config)
+  if not enforcement_ok then
+    return false, enforcement_check_error
+  end
+
+  local current_settings, current_settings_error = read_settings(context.env, true)
+  if not current_settings then
+    return false, current_settings_error
+  end
+
+  local lists, list_error = load_lists(context.env, context.paths, parsed_config, {
+    installed = true,
+    allow_bootstrap = false,
+  })
+  if not lists then
+    return false, list_error
+  end
+
+  local original_crontab = context.env.read_file(context.paths.crontab_path)
+  next_settings = copy_settings(next_settings)
+  next_settings.schema_version = QUIETWRT_SCHEMA_VERSION
+
+  local schedule_ok, schedule_error = install_schedule(context.env, context.paths, next_settings)
+  if not schedule_ok then
+    return false, schedule_error
+  end
+
+  local applied, apply_result = apply_mode(context, {
+    parsed_config = parsed_config,
+    lists = lists,
+    settings = next_settings,
+  })
+  if not applied then
+    local rollback_errors = {}
+    local restored_schedule, restored_schedule_error = restore_schedule(context.env, context.paths, original_crontab)
+    if not restored_schedule then
+      table.insert(rollback_errors, restored_schedule_error)
+    end
+    return false, append_rollback_errors(apply_result, rollback_errors)
+  end
+
+  local settings_ok, settings_result = persist_settings(context.env, context.paths, next_settings)
+  if not settings_ok then
+    local rollback_errors = {}
+
+    local restored_schedule, restored_schedule_error = restore_schedule(context.env, context.paths, original_crontab)
+    if not restored_schedule then
+      table.insert(rollback_errors, restored_schedule_error)
+    end
+
+    local restored_settings_ok, restored_settings_error = persist_settings(context.env, context.paths, current_settings)
+    if not restored_settings_ok then
+      table.insert(rollback_errors, restored_settings_error)
+    end
+
+    local restored, restore_error = apply_mode(context, {
+      parsed_config = parsed_config,
+      lists = lists,
+      settings = current_settings,
+    })
+    if not restored then
+      table.insert(rollback_errors, restore_error)
+    end
+
+    return false, append_rollback_errors(settings_result, rollback_errors)
+  end
+
+  return true, {
+    settings = settings_result,
+    active_rule_count = apply_result.active_rule_count,
+  }
+end
+
+function M.new_context(options)
+  options = options or {}
+  return {
+    env = default_env(options.env),
+    paths = options.paths or default_paths(),
+  }
+end
+
+function M.load_view_state(context)
+  local snapshot, err = status_snapshot(context)
+  if not snapshot then
+    return nil, err
+  end
+
+  if not snapshot.installed then
+    return nil, "QuietWrt is not installed."
+  end
+
+  if #snapshot.warnings > 0 then
+    return nil, snapshot.warnings[1]
+  end
+
+  return snapshot, nil
 end
 
 function M.apply_current_mode(context)
@@ -1167,15 +1452,13 @@ function M.add_entry(context, destination, raw_value)
     }
   end
 
-  local previous_lists = {
-    always_hosts = util.clone_array(lists.always_hosts),
-    workday_hosts = util.clone_array(lists.workday_hosts),
-    passthrough_rules = util.clone_array(lists.passthrough_rules),
-  }
-
+  local previous_lists = clone_lists(lists)
   local result = rules.apply_addition(
     lists.always_hosts,
-    lists.workday_hosts,
+    {
+      workday = lists.workday_hosts,
+      after_work = lists.after_work_hosts,
+    },
     destination,
     raw_value
   )
@@ -1187,9 +1470,9 @@ function M.add_entry(context, destination, raw_value)
   local saved, save_error = persist_lists(context.env, context.paths, {
     always_hosts = result.always_hosts,
     workday_hosts = result.workday_hosts,
+    after_work_hosts = result.after_work_hosts,
     passthrough_rules = lists.passthrough_rules,
   })
-
   if not saved then
     return {
       ok = false,
@@ -1213,7 +1496,6 @@ function M.add_entry(context, destination, raw_value)
     }
   end
 
-  result.mode = apply_result.mode
   result.active_rule_count = apply_result.active_rule_count
   return result
 end
@@ -1238,14 +1520,21 @@ function M.install(context)
     return false, list_error
   end
 
-  local desired_settings_input = install_state.installed and {} or {
-    always_enabled = true,
-    workday_enabled = true,
-    overnight_enabled = false,
-  }
-  local staged_settings = resolve_settings(context.env, context.paths, desired_settings_input, {
-    schema_version = QUIETWRT_SCHEMA_VERSION,
-  })
+  local staged_settings
+  if install_state.installed then
+    local settings_error
+    staged_settings, settings_error = read_settings(context.env, true)
+    if not staged_settings then
+      return false, settings_error
+    end
+  else
+    staged_settings = default_install_settings()
+  end
+
+  local original_settings = nil
+  if install_state.installed then
+    original_settings = copy_settings(staged_settings)
+  end
 
   local rollback_state = {
     original_crontab = context.env.read_file(context.paths.crontab_path),
@@ -1253,12 +1542,13 @@ function M.install(context)
     bootstrapped_lists = lists.bootstrapped == true,
     original_adguard_config = parsed_config.content,
     original_firewall = capture_firewall_snapshot(context.env),
+    original_settings = original_settings,
     schedule_changed = true,
     boot_service_changed = false,
     applied = false,
   }
 
-  local schedule_ok, schedule_error = install_schedule(context.env, context.paths)
+  local schedule_ok, schedule_error = install_schedule(context.env, context.paths, staged_settings)
   if not schedule_ok then
     local rollback_errors = rollback_install(context, rollback_state)
     return false, append_rollback_errors(schedule_error, rollback_errors)
@@ -1290,7 +1580,6 @@ function M.install(context)
   end
 
   return true, {
-    mode = apply_result.mode,
     settings = settings_result,
     active_rule_count = apply_result.active_rule_count,
     bootstrapped = lists.bootstrapped,
@@ -1298,47 +1587,51 @@ function M.install(context)
 end
 
 function M.set_toggle(context, toggle_name, enabled)
-  if not detect_installed(context.env, context.paths) then
-    return false, "QuietWrt is not installed."
+  local settings, err = read_settings(context.env, detect_installed(context.env, context.paths))
+  if not settings then
+    return false, err
   end
-
-  local parsed_config, config_error = read_adguard_state(context.env, context.paths)
-  if not parsed_config then
-    return false, config_error
-  end
-
-  local enforcement_ok, enforcement_check_error = require_enforcement_ready(context.paths, parsed_config)
-  if not enforcement_ok then
-    return false, enforcement_check_error
-  end
-
-  local settings = read_settings(context.env, true)
 
   if toggle_name == "always" then
     settings.always_enabled = enabled
   elseif toggle_name == "workday" then
     settings.workday_enabled = enabled
+  elseif toggle_name == "after_work" then
+    settings.after_work_enabled = enabled
   elseif toggle_name == "overnight" then
     settings.overnight_enabled = enabled
   else
     return false, "Unknown toggle: " .. tostring(toggle_name)
   end
 
-  local settings_ok, settings_error = ensure_settings(context.env, context.paths, settings)
-  if not settings_ok then
-    return false, settings_error
+  return apply_settings_change(context, settings)
+end
+
+function M.set_schedule(context, schedule_name, start_value, end_value)
+  local settings, err = read_settings(context.env, detect_installed(context.env, context.paths))
+  if not settings then
+    return false, err
   end
 
-  local applied, apply_result = M.apply_current_mode(context)
-  if not applied then
-    return false, apply_result
+  local updated_window, window_error = schedule.build_window(schedule_name, start_value, end_value)
+  if not updated_window then
+    return false, window_error
   end
 
-  return true, {
-    mode = apply_result.mode,
-    settings = settings,
-    active_rule_count = apply_result.active_rule_count,
-  }
+  if schedule_name == "workday" then
+    settings.workday_start = updated_window.start
+    settings.workday_end = updated_window["end"]
+  elseif schedule_name == "after_work" then
+    settings.after_work_start = updated_window.start
+    settings.after_work_end = updated_window["end"]
+  elseif schedule_name == "overnight" then
+    settings.overnight_start = updated_window.start
+    settings.overnight_end = updated_window["end"]
+  else
+    return false, "Unknown schedule: " .. tostring(schedule_name)
+  end
+
+  return apply_settings_change(context, settings)
 end
 
 function M.restore_lists(context, restore_paths)
@@ -1365,6 +1658,8 @@ function M.restore_lists(context, restore_paths)
   end
 
   local replacements = {}
+  local selected_count = 0
+
   if restore_paths.always_path then
     local always_content = context.env.read_file(restore_paths.always_path)
     if always_content == nil then
@@ -1377,6 +1672,7 @@ function M.restore_lists(context, restore_paths)
     end
 
     replacements.always_hosts = always_hosts
+    selected_count = selected_count + 1
   end
 
   if restore_paths.workday_path then
@@ -1391,18 +1687,29 @@ function M.restore_lists(context, restore_paths)
     end
 
     replacements.workday_hosts = workday_hosts
+    selected_count = selected_count + 1
   end
 
-  if replacements.always_hosts == nil and replacements.workday_hosts == nil then
+  if restore_paths.after_work_path then
+    local after_work_content = context.env.read_file(restore_paths.after_work_path)
+    if after_work_content == nil then
+      return false, "Could not read " .. restore_paths.after_work_path .. "."
+    end
+
+    local after_work_hosts, after_work_error = rules.load_hosts_file(after_work_content, restore_paths.after_work_path)
+    if not after_work_hosts then
+      return false, after_work_error
+    end
+
+    replacements.after_work_hosts = after_work_hosts
+    selected_count = selected_count + 1
+  end
+
+  if selected_count == 0 then
     return false, "Provide at least one restore file."
   end
 
-  local previous_lists = {
-    always_hosts = util.clone_array(current_lists.always_hosts),
-    workday_hosts = util.clone_array(current_lists.workday_hosts),
-    passthrough_rules = util.clone_array(current_lists.passthrough_rules),
-  }
-
+  local previous_lists = clone_lists(current_lists)
   local saved, save_error = persist_selected_lists(context.env, context.paths, replacements)
   if not saved then
     return false, save_error
@@ -1418,13 +1725,16 @@ function M.restore_lists(context, restore_paths)
   end
 
   return true, {
-    mode = apply_result.mode,
     active_rule_count = apply_result.active_rule_count,
   }
 end
 
 function M.status(context, options)
-  local snapshot = status_snapshot(context)
+  local snapshot, err = status_snapshot(context)
+  if not snapshot then
+    return false, err
+  end
+
   if options and options.json then
     return true, render_status_json(snapshot)
   end

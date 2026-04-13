@@ -1,4 +1,5 @@
 local service = require("quietwrt.service")
+local schedule = require("quietwrt.schedule")
 local util = require("quietwrt.util")
 local view = require("quietwrt.view")
 
@@ -48,16 +49,15 @@ function M.run_cgi(options)
     load_error = load_error,
     protection_enabled = protection_enabled,
     enforcement_ready = enforcement_ready,
-    current_mode = state and state.current_mode or {
-      label = "Unknown",
-      description = "Could not load the current QuietWrt mode.",
-    },
     router_time = state and state.router_time or os.date("%H:%M"),
     settings = state and state.settings or {},
     workday_active = state and state.workday_active,
+    after_work_active = state and state.after_work_active,
     overnight_active = state and state.overnight_active,
+    schedule = state and state.schedule or {},
     always_hosts = state and state.always_hosts or {},
     workday_hosts = state and state.workday_hosts or {},
+    after_work_hosts = state and state.after_work_hosts or {},
     active_rules = state and state.active_rules or {},
     active_rule_count = state and state.active_rule_count or 0,
   })
@@ -68,12 +68,13 @@ local function print_usage()
 Usage: quietwrtctl <command>
 
 Commands:
-  install   Bootstrap list files, install cron sync, and apply the current mode.
+  install   Bootstrap list files, install cron sync, and apply the current schedule state.
   sync      Rebuild AdGuard rules for the current time and update curfew firewall state.
   apply     Alias for sync.
-  status    Show current list counts and active mode. Use --json for machine-readable output.
-  set       Toggle always, workday, or overnight on or off.
-  restore   Restore always/workday list files from uploaded backup files and apply them.
+  status    Show current list counts and schedule state. Use --json for machine-readable output.
+  set       Toggle always, workday, after_work, or overnight on or off.
+  schedule  Set workday, after_work, or overnight start/end times.
+  restore   Restore always/workday/after-work list files from uploaded backup files and apply them.
 ]])
 end
 
@@ -85,24 +86,34 @@ local function parse_restore_args(argv)
     local flag = argv[index]
     local value = argv[index + 1]
 
-    if (flag ~= "--always" and flag ~= "--workday") or value == nil or value == "" then
-      return nil, "Usage: quietwrtctl restore [--always <path>] [--workday <path>]"
+    if (flag ~= "--always" and flag ~= "--workday" and flag ~= "--after-work") or value == nil or value == "" then
+      return nil, "Usage: quietwrtctl restore [--always <path>] [--workday <path>] [--after-work <path>]"
     end
 
     if flag == "--always" then
       parsed.always_path = value
-    else
+    elseif flag == "--workday" then
       parsed.workday_path = value
+    else
+      parsed.after_work_path = value
     end
 
     index = index + 2
   end
 
-  if not parsed.always_path and not parsed.workday_path then
-    return nil, "Usage: quietwrtctl restore [--always <path>] [--workday <path>]"
+  if not parsed.always_path and not parsed.workday_path and not parsed.after_work_path then
+    return nil, "Usage: quietwrtctl restore [--always <path>] [--workday <path>] [--after-work <path>]"
   end
 
   return parsed, nil
+end
+
+local function schedule_summary(schedule_name, start_value, end_value)
+  local window, err = schedule.build_window(schedule_name, start_value, end_value)
+  if not window then
+    return nil, err
+  end
+  return schedule.window_summary(window), nil
 end
 
 function M.run_cli(argv, options)
@@ -115,7 +126,7 @@ function M.run_cli(argv, options)
       io.stderr:write(result, "\n")
       return 1
     end
-    io.write("Installed QuietWrt schedule. Current mode: ", result.mode.label, "\n")
+    io.write("Installed QuietWrt. Active rules: ", tostring(result.active_rule_count), "\n")
     return 0
   end
 
@@ -125,7 +136,7 @@ function M.run_cli(argv, options)
       io.stderr:write(result, "\n")
       return 1
     end
-    io.write("Applied ", result.mode.label, " with ", tostring(result.active_rule_count), " active rules.\n")
+    io.write("Applied QuietWrt state with ", tostring(result.active_rule_count), " active rules.\n")
     return 0
   end
 
@@ -152,7 +163,7 @@ function M.run_cli(argv, options)
     elseif raw_state == "off" then
       enabled = false
     else
-      io.stderr:write("Usage: quietwrtctl set <always|workday|overnight> <on|off>\n")
+      io.stderr:write("Usage: quietwrtctl set <always|workday|after_work|overnight> <on|off>\n")
       return 1
     end
 
@@ -167,8 +178,40 @@ function M.run_cli(argv, options)
       toggle_name,
       " ",
       raw_state,
-      ". Current mode: ",
-      result.mode.label,
+      ". Active rules: ",
+      tostring(result.active_rule_count),
+      ".\n"
+    )
+    return 0
+  end
+
+  if command == "schedule" then
+    local schedule_name = argv[2]
+    local start_value = argv[3]
+    local end_value = argv[4]
+
+    if schedule_name == nil or start_value == nil or end_value == nil then
+      io.stderr:write("Usage: quietwrtctl schedule <workday|after_work|overnight> <start_hhmm> <end_hhmm>\n")
+      return 1
+    end
+
+    local ok, result = service.set_schedule(context, schedule_name, start_value, end_value)
+    if not ok then
+      io.stderr:write(result, "\n")
+      return 1
+    end
+
+    local summary, summary_error = schedule_summary(schedule_name, start_value, end_value)
+    if not summary then
+      io.stderr:write(summary_error, "\n")
+      return 1
+    end
+
+    io.write(
+      "Set ",
+      schedule_name,
+      " window to ",
+      summary,
       ". Active rules: ",
       tostring(result.active_rule_count),
       ".\n"
@@ -189,7 +232,7 @@ function M.run_cli(argv, options)
       return 1
     end
 
-    io.write("Restored backup lists. Current mode: ", result.mode.label, ". Active rules: ", tostring(result.active_rule_count), ".\n")
+    io.write("Restored backup lists. Active rules: ", tostring(result.active_rule_count), ".\n")
     return 0
   end
 

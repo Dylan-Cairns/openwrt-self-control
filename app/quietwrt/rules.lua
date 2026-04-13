@@ -2,6 +2,17 @@ local util = require("quietwrt.util")
 
 local M = {}
 
+local DESTINATION_LABELS = {
+  always = "Always blocked",
+  workday = "Workday blocked",
+  after_work = "After work blocked",
+}
+
+local SCHEDULED_DESTINATIONS = {
+  "workday",
+  "after_work",
+}
+
 local function format_source_line(source_name, line_number)
   local label = source_name or "input"
   return label .. " line " .. tostring(line_number)
@@ -51,6 +62,39 @@ local function is_valid_host(host)
   end
 
   return label_count >= 2
+end
+
+local function destination_label(name)
+  return DESTINATION_LABELS[name] or tostring(name or "destination")
+end
+
+local function clone_scheduled_lists(source)
+  local cloned = {}
+  for _, name in ipairs(SCHEDULED_DESTINATIONS) do
+    cloned[name] = util.sorted_unique(source and source[name] or {})
+  end
+  return cloned
+end
+
+local function find_scheduled_destination(scheduled_lists, host)
+  for _, name in ipairs(SCHEDULED_DESTINATIONS) do
+    if util.contains(scheduled_lists[name], host) then
+      return name
+    end
+  end
+  return nil
+end
+
+local function build_result(ok, kind, message, host, always_hosts, scheduled_lists)
+  return {
+    ok = ok,
+    kind = kind,
+    message = message,
+    host = host,
+    always_hosts = always_hosts,
+    workday_hosts = scheduled_lists.workday,
+    after_work_hosts = scheduled_lists.after_work,
+  }
 end
 
 function M.normalize_host_input(value)
@@ -179,7 +223,8 @@ function M.load_rules_file(content, source_name)
     if text ~= "" then
       local kind = M.classify_rule(text)
       if kind == "block" then
-        return nil, format_source_line(source_name, line_number) .. ": Block rules belong in the always/workday lists, not passthrough rules."
+        return nil, format_source_line(source_name, line_number)
+          .. ": Block rules belong in the always/workday/after work lists, not passthrough rules."
       end
 
       table.insert(parsed, text)
@@ -213,12 +258,10 @@ function M.partition_user_rules(rules)
   return util.sorted_unique(always_hosts), util.stable_dedupe(passthrough_rules)
 end
 
-function M.compile_active_rules(always_hosts, workday_hosts, passthrough_rules, mode)
+function M.compile_active_rules(always_hosts, scheduled_hosts, passthrough_rules)
   local active_hosts = util.clone_array(always_hosts or {})
-  if mode and mode.code == "always_and_workday" then
-    for _, host in ipairs(workday_hosts or {}) do
-      table.insert(active_hosts, host)
-    end
+  for _, host in ipairs(scheduled_hosts or {}) do
+    table.insert(active_hosts, host)
   end
 
   active_hosts = util.sorted_unique(active_hosts)
@@ -231,7 +274,7 @@ function M.compile_active_rules(always_hosts, workday_hosts, passthrough_rules, 
   return compiled
 end
 
-function M.apply_addition(always_hosts, workday_hosts, destination, raw_value)
+function M.apply_addition(always_hosts, scheduled_lists, destination, raw_value)
   local host, normalize_error = M.normalize_host_input(raw_value)
   if not host then
     return {
@@ -242,90 +285,93 @@ function M.apply_addition(always_hosts, workday_hosts, destination, raw_value)
   end
 
   always_hosts = util.sorted_unique(always_hosts or {})
-  workday_hosts = util.sorted_unique(workday_hosts or {})
+  scheduled_lists = clone_scheduled_lists(scheduled_lists)
 
   local in_always = util.contains(always_hosts, host)
-  local in_workday = util.contains(workday_hosts, host)
+  local current_scheduled_destination = find_scheduled_destination(scheduled_lists, host)
 
   if destination == "always" then
     if in_always then
-      return {
-        ok = false,
-        kind = "info",
-        message = host .. " is already always blocked.",
-        host = host,
-        always_hosts = always_hosts,
-        workday_hosts = workday_hosts,
-      }
+      return build_result(false, "info", host .. " is already always blocked.", host, always_hosts, scheduled_lists)
     end
 
     table.insert(always_hosts, host)
     always_hosts = util.sorted_unique(always_hosts)
 
-    if in_workday then
-      workday_hosts = util.remove_value(workday_hosts, host)
-      workday_hosts = util.sorted_unique(workday_hosts)
-      return {
-        ok = true,
-        kind = "success",
-        message = "Moved " .. host .. " from Workday blocked to Always blocked.",
-        host = host,
-        always_hosts = always_hosts,
-        workday_hosts = workday_hosts,
-      }
+    if current_scheduled_destination ~= nil then
+      scheduled_lists[current_scheduled_destination] = util.remove_value(scheduled_lists[current_scheduled_destination], host)
+      scheduled_lists[current_scheduled_destination] = util.sorted_unique(scheduled_lists[current_scheduled_destination])
+      return build_result(
+        true,
+        "success",
+        "Moved " .. host .. " from " .. destination_label(current_scheduled_destination) .. " to Always blocked.",
+        host,
+        always_hosts,
+        scheduled_lists
+      )
     end
 
-    return {
-      ok = true,
-      kind = "success",
-      message = "Added " .. host .. " to Always blocked.",
-      host = host,
-      always_hosts = always_hosts,
-      workday_hosts = workday_hosts,
-    }
+    return build_result(true, "success", "Added " .. host .. " to Always blocked.", host, always_hosts, scheduled_lists)
   end
 
-  if destination ~= "workday" then
+  if DESTINATION_LABELS[destination] == nil or destination == "always" then
     return {
       ok = false,
       kind = "error",
-      message = "Choose either Always blocked or Workday blocked.",
+      message = "Choose Always blocked, Workday blocked, or After work blocked.",
     }
   end
 
   if in_always then
-    return {
-      ok = false,
-      kind = "error",
-      message = host .. " is already always blocked.",
-      host = host,
-      always_hosts = always_hosts,
-      workday_hosts = workday_hosts,
-    }
+    return build_result(
+      false,
+      "error",
+      host .. " is already always blocked.",
+      host,
+      always_hosts,
+      scheduled_lists
+    )
   end
 
-  if in_workday then
-    return {
-      ok = false,
-      kind = "info",
-      message = host .. " is already workday blocked.",
-      host = host,
-      always_hosts = always_hosts,
-      workday_hosts = workday_hosts,
-    }
+  if current_scheduled_destination == destination then
+    return build_result(
+      false,
+      "info",
+      host .. " is already " .. destination_label(destination):lower() .. ".",
+      host,
+      always_hosts,
+      scheduled_lists
+    )
   end
 
-  table.insert(workday_hosts, host)
-  workday_hosts = util.sorted_unique(workday_hosts)
+  if current_scheduled_destination ~= nil then
+    scheduled_lists[current_scheduled_destination] = util.remove_value(scheduled_lists[current_scheduled_destination], host)
+    scheduled_lists[current_scheduled_destination] = util.sorted_unique(scheduled_lists[current_scheduled_destination])
+  end
 
-  return {
-    ok = true,
-    kind = "success",
-    message = "Added " .. host .. " to Workday blocked.",
-    host = host,
-    always_hosts = always_hosts,
-    workday_hosts = workday_hosts,
-  }
+  table.insert(scheduled_lists[destination], host)
+  scheduled_lists[destination] = util.sorted_unique(scheduled_lists[destination])
+
+  if current_scheduled_destination ~= nil then
+    return build_result(
+      true,
+      "success",
+      "Moved " .. host .. " from " .. destination_label(current_scheduled_destination) .. " to "
+        .. destination_label(destination) .. ".",
+      host,
+      always_hosts,
+      scheduled_lists
+    )
+  end
+
+  return build_result(
+    true,
+    "success",
+    "Added " .. host .. " to " .. destination_label(destination) .. ".",
+    host,
+    always_hosts,
+    scheduled_lists
+  )
 end
 
 return M

@@ -168,6 +168,7 @@ function M.make_context(overrides)
     data_dir = data_dir,
     always_list_path = M.join_path(data_dir, "always-blocked.txt"),
     workday_list_path = M.join_path(data_dir, "workday-blocked.txt"),
+    after_work_list_path = M.join_path(data_dir, "after-work-blocked.txt"),
     passthrough_rules_path = M.join_path(data_dir, "passthrough-rules.txt"),
     restart_adguard_command = "restart-adguard",
     crontab_path = M.join_path(root, "root.crontab"),
