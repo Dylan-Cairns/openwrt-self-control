@@ -41,6 +41,13 @@ Describe 'QuietWrt PowerShell CLI' {
         $status.after_work_enabled | Should Be $false
     }
 
+    It 'renders placeholder status without schedule property errors' {
+        Mock Write-Host { }
+        Mock Write-Warning { }
+
+        { Show-QuietWrtStatus -Status (New-QuietWrtStatusPlaceholder) } | Should Not Throw
+    }
+
     It 'preserves schedule and enforcement readiness from quietwrtctl status output' {
         Mock Test-QuietWrtCliPresent { $true }
         Mock Invoke-QuietWrtRemote {

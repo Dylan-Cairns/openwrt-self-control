@@ -464,7 +464,11 @@ function New-QuietWrtStatusPlaceholder {
         workday_count = 0
         after_work_count = 0
         active_rule_count = 0
-        schedule = [pscustomobject]@{}
+        schedule = [pscustomobject]@{
+            workday = $null
+            after_work = $null
+            overnight = $null
+        }
         hardening = [pscustomobject]@{
             dns_intercept = $false
             dot_block = $false
@@ -757,6 +761,30 @@ function Get-QuietWrtWindowSummary {
     return $summary
 }
 
+function Get-QuietWrtScheduleWindow {
+    param(
+        $Status,
+        [ValidateSet('workday', 'after_work', 'overnight')]
+        [string]$ScheduleName
+    )
+
+    if ($null -eq $Status) {
+        return $null
+    }
+
+    $scheduleProperty = $Status.PSObject.Properties['schedule']
+    if ($null -eq $scheduleProperty -or $null -eq $scheduleProperty.Value) {
+        return $null
+    }
+
+    $windowProperty = $scheduleProperty.Value.PSObject.Properties[$ScheduleName]
+    if ($null -eq $windowProperty) {
+        return $null
+    }
+
+    return $windowProperty.Value
+}
+
 function Read-QuietWrtScheduleValue {
     param(
         [string]$Prompt
@@ -803,7 +831,7 @@ function Update-QuietWrtScheduleWindow {
         'overnight' { 'Overnight' }
     }
 
-    $currentWindow = $Status.schedule.$ScheduleName
+    $currentWindow = Get-QuietWrtScheduleWindow -Status $Status -ScheduleName $ScheduleName
     if ($currentWindow) {
         Write-Host ''
         Write-Host "$label window: $(Get-QuietWrtWindowSummary -Start $currentWindow.start -End $currentWindow.end)"
@@ -999,18 +1027,21 @@ function Show-QuietWrtStatus {
     Write-Host "  Always blocklist: $(if ($Status.always_enabled) { 'enabled' } else { 'disabled' })"
     Write-Host "  Workday blocklist: $(if ($Status.workday_enabled) { 'enabled' } else { 'disabled' })"
     Write-Host "  Workday active now: $(if ($Status.workday_active) { 'yes' } else { 'no' })"
-    if ($Status.schedule.workday) {
-        Write-Host "  Workday window: $(Get-QuietWrtWindowSummary -Start $Status.schedule.workday.start -End $Status.schedule.workday.end)"
+    $workdayWindow = Get-QuietWrtScheduleWindow -Status $Status -ScheduleName 'workday'
+    if ($workdayWindow) {
+        Write-Host "  Workday window: $(Get-QuietWrtWindowSummary -Start $workdayWindow.start -End $workdayWindow.end)"
     }
     Write-Host "  After work blocklist: $(if ($Status.after_work_enabled) { 'enabled' } else { 'disabled' })"
     Write-Host "  After work active now: $(if ($Status.after_work_active) { 'yes' } else { 'no' })"
-    if ($Status.schedule.after_work) {
-        Write-Host "  After work window: $(Get-QuietWrtWindowSummary -Start $Status.schedule.after_work.start -End $Status.schedule.after_work.end)"
+    $afterWorkWindow = Get-QuietWrtScheduleWindow -Status $Status -ScheduleName 'after_work'
+    if ($afterWorkWindow) {
+        Write-Host "  After work window: $(Get-QuietWrtWindowSummary -Start $afterWorkWindow.start -End $afterWorkWindow.end)"
     }
     Write-Host "  Overnight blocking: $(if ($Status.overnight_enabled) { 'enabled' } else { 'disabled' })"
     Write-Host "  Overnight active now: $(if ($Status.overnight_active) { 'yes' } else { 'no' })"
-    if ($Status.schedule.overnight) {
-        Write-Host "  Overnight window: $(Get-QuietWrtWindowSummary -Start $Status.schedule.overnight.start -End $Status.schedule.overnight.end)"
+    $overnightWindow = Get-QuietWrtScheduleWindow -Status $Status -ScheduleName 'overnight'
+    if ($overnightWindow) {
+        Write-Host "  Overnight window: $(Get-QuietWrtWindowSummary -Start $overnightWindow.start -End $overnightWindow.end)"
     }
     Write-Host "  Always entries: $($Status.always_count)"
     Write-Host "  Workday entries: $($Status.workday_count)"
