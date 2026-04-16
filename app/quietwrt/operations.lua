@@ -1,12 +1,12 @@
+local apply_engine = require("quietwrt.apply_engine")
 local cron = require("quietwrt.cron")
 local enforcement = require("quietwrt.enforcement")
 local firewall = require("quietwrt.firewall")
 local lists_store = require("quietwrt.lists_store")
 local rules = require("quietwrt.rules")
-local runtime = require("quietwrt.runtime")
 local schedule = require("quietwrt.schedule")
 local settings_store = require("quietwrt.settings_store")
-local status_render = require("quietwrt.status_render")
+local status_ops = require("quietwrt.status_ops")
 
 local M = {}
 
@@ -93,164 +93,6 @@ local function rollback_install(context, rollback_state)
   return rollback_errors
 end
 
-local function status_snapshot(context)
-  local install_state = settings_store.read_install_state(context)
-  local now_table = context.env.now()
-
-  if not install_state.installed then
-    local snapshot = runtime.uninstalled_snapshot(now_table)
-    snapshot.schema_version = install_state.schema_version
-    return snapshot, nil
-  end
-
-  local parsed_config, config_error = enforcement.read_state(context)
-  if not parsed_config then
-    return nil, config_error
-  end
-
-  local settings, settings_error = settings_store.read_settings(context, true)
-  if not settings then
-    return nil, settings_error
-  end
-
-  local lists, list_error = lists_store.load(context, parsed_config, {
-    installed = true,
-    allow_bootstrap = false,
-  })
-  if not lists then
-    return nil, list_error
-  end
-
-  local activity, activity_error = runtime.build_runtime_activity(settings, now_table)
-  if not activity then
-    return nil, activity_error
-  end
-
-  local warnings = {}
-  local enforcement_ready = enforcement.is_ready(context, parsed_config)
-  local enforcement_warning = enforcement.enforcement_error(context, parsed_config)
-  if enforcement_warning then
-    table.insert(warnings, enforcement_warning)
-  end
-
-  local hardening = firewall.hardening_status(context)
-  local snapshot = runtime.build_view_state(
-    parsed_config,
-    lists,
-    settings,
-    activity,
-    hardening,
-    true,
-    enforcement_ready
-  )
-  snapshot.router_time = runtime.format_router_time(now_table)
-  snapshot.schema_version = install_state.schema_version or snapshot.schema_version
-  snapshot.install_state = install_state
-  snapshot.warnings = warnings
-  return snapshot, nil
-end
-
-local function apply_mode(context, options)
-  options = options or {}
-
-  if options.require_installed ~= false and not settings_store.detect_installed(context) then
-    return false, "QuietWrt is not installed."
-  end
-
-  local parsed_config = options.parsed_config
-  if not parsed_config then
-    local config_error
-    parsed_config, config_error = enforcement.read_state(context)
-    if not parsed_config then
-      return false, config_error
-    end
-  end
-
-  local enforcement_ok, enforcement_check_error = enforcement.require_ready(context, parsed_config)
-  if not enforcement_ok then
-    return false, enforcement_check_error
-  end
-
-  local lists = options.lists
-  if not lists then
-    local installed = options.installed
-    if installed == nil then
-      installed = true
-    end
-
-    local allow_bootstrap = options.allow_bootstrap == true
-    local list_error
-    lists, list_error = lists_store.load(context, parsed_config, {
-      installed = installed,
-      allow_bootstrap = allow_bootstrap,
-    })
-    if not lists then
-      return false, list_error
-    end
-  end
-
-  local settings = options.settings
-  if settings == nil then
-    local settings_error
-    settings, settings_error = settings_store.read_settings(context, true)
-    if not settings then
-      return false, settings_error
-    end
-  end
-
-  local activity, activity_error = runtime.build_runtime_activity(settings, context.env.now())
-  if not activity then
-    return false, activity_error
-  end
-
-  local active_always_hosts, active_scheduled_hosts = runtime.build_active_hosts(lists, settings, activity)
-  local compiled_rules = rules.compile_active_rules(
-    active_always_hosts,
-    active_scheduled_hosts,
-    lists.passthrough_rules
-  )
-
-  local adguard_ok, adguard_error, adguard_changed = enforcement.apply_rules(context, parsed_config, compiled_rules)
-  if not adguard_ok then
-    return false, adguard_error
-  end
-
-  local curfew_enabled = activity.overnight_active
-  local previous_firewall = firewall.capture_snapshot(context)
-  local desired_firewall = firewall.desired_snapshot(curfew_enabled)
-  if not firewall.snapshots_equal(previous_firewall, desired_firewall) then
-    local firewall_ok, firewall_error = firewall.commit_snapshot(context, desired_firewall)
-    if not firewall_ok then
-      local rollback_errors = {}
-
-      if adguard_changed then
-        local restore_ok, restore_error = enforcement.restore_config(context, parsed_config.content)
-        if not restore_ok then
-          table.insert(rollback_errors, restore_error)
-        end
-      end
-
-      local firewall_restore_ok, firewall_restore_error = firewall.commit_snapshot(context, previous_firewall)
-      if not firewall_restore_ok then
-        table.insert(rollback_errors, firewall_restore_error)
-      end
-
-      if #rollback_errors == 0 then
-        return false, firewall_error .. " Previous state was restored."
-      end
-
-      return false, firewall_error .. " Rollback issues: " .. table.concat(rollback_errors, " | ")
-    end
-  end
-
-  return true, {
-    settings = settings,
-    activity = activity,
-    active_rule_count = #compiled_rules,
-    bootstrapped = lists.bootstrapped,
-  }
-end
-
 local function apply_settings_change(context, next_settings)
   if not settings_store.detect_installed(context) then
     return false, "QuietWrt is not installed."
@@ -287,7 +129,7 @@ local function apply_settings_change(context, next_settings)
     return false, schedule_error
   end
 
-  local applied, apply_result = apply_mode(context, {
+  local applied, apply_result = apply_engine.apply_mode(context, {
     parsed_config = parsed_config,
     lists = lists,
     settings = next_settings,
@@ -315,7 +157,7 @@ local function apply_settings_change(context, next_settings)
       table.insert(rollback_errors, restored_settings_error)
     end
 
-    local restored, restore_error = apply_mode(context, {
+    local restored, restore_error = apply_engine.apply_mode(context, {
       parsed_config = parsed_config,
       lists = lists,
       settings = current_settings,
@@ -334,24 +176,11 @@ local function apply_settings_change(context, next_settings)
 end
 
 function M.load_view_state(context)
-  local snapshot, err = status_snapshot(context)
-  if not snapshot then
-    return nil, err
-  end
-
-  if not snapshot.installed then
-    return nil, "QuietWrt is not installed."
-  end
-
-  if #snapshot.warnings > 0 then
-    return nil, snapshot.warnings[1]
-  end
-
-  return snapshot, nil
+  return status_ops.load_view_state(context)
 end
 
 function M.apply_current_mode(context)
-  return apply_mode(context, {
+  return apply_engine.apply_mode(context, {
     require_installed = true,
   })
 end
@@ -506,7 +335,7 @@ function M.install(context)
   end
   rollback_state.boot_service_changed = true
 
-  local applied, apply_result = apply_mode(context, {
+  local applied, apply_result = apply_engine.apply_mode(context, {
     require_installed = false,
     parsed_config = parsed_config,
     lists = lists,
@@ -698,16 +527,7 @@ function M.restore_lists(context, restore_paths)
 end
 
 function M.status(context, options)
-  local snapshot, err = status_snapshot(context)
-  if not snapshot then
-    return false, err
-  end
-
-  if options and options.json then
-    return true, status_render.render_json(snapshot)
-  end
-
-  return true, status_render.render_text(snapshot)
+  return status_ops.status(context, options)
 end
 
 return M
