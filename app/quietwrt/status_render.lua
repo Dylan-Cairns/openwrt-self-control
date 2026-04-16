@@ -2,6 +2,20 @@ local util = require("quietwrt.util")
 
 local M = {}
 
+local function window_summary(window)
+  if window == nil then
+    return "unknown"
+  end
+
+  if window.summary ~= nil and window.summary ~= "" then
+    return window.summary
+  end
+
+  return window.display_start .. " to "
+    .. window.display_end
+    .. (window.overnight and " (overnight)" or "")
+end
+
 function M.render_text(snapshot)
   local schedule_snapshot = snapshot.schedule or {}
   local lines = {
@@ -16,36 +30,16 @@ function M.render_text(snapshot)
     "Always enabled: " .. (snapshot.settings.always_enabled and "yes" or "no"),
     "Workday enabled: " .. (snapshot.settings.workday_enabled and "yes" or "no"),
     "Workday active now: " .. (snapshot.workday_active and "yes" or "no"),
-    "Workday window: " .. (
-      schedule_snapshot.workday and (schedule_snapshot.workday.display_start .. " to "
-        .. schedule_snapshot.workday.display_end
-        .. (schedule_snapshot.workday.overnight and " (overnight)" or ""))
-      or "unknown"
-    ),
+    "Workday window: " .. window_summary(schedule_snapshot.workday),
     "After work enabled: " .. (snapshot.settings.after_work_enabled and "yes" or "no"),
     "After work active now: " .. (snapshot.after_work_active and "yes" or "no"),
-    "After work window: " .. (
-      schedule_snapshot.after_work and (schedule_snapshot.after_work.display_start .. " to "
-        .. schedule_snapshot.after_work.display_end
-        .. (schedule_snapshot.after_work.overnight and " (overnight)" or ""))
-      or "unknown"
-    ),
+    "After work window: " .. window_summary(schedule_snapshot.after_work),
     "Password vault enabled: " .. (snapshot.settings.password_vault_enabled and "yes" or "no"),
     "Password vault active now: " .. (snapshot.password_vault_active and "yes" or "no"),
-    "Password vault window: " .. (
-      schedule_snapshot.password_vault and (schedule_snapshot.password_vault.display_start .. " to "
-        .. schedule_snapshot.password_vault.display_end
-        .. (schedule_snapshot.password_vault.overnight and " (overnight)" or ""))
-      or "unknown"
-    ),
+    "Password vault window: " .. window_summary(schedule_snapshot.password_vault),
     "Overnight enabled: " .. (snapshot.settings.overnight_enabled and "yes" or "no"),
     "Overnight active now: " .. (snapshot.overnight_active and "yes" or "no"),
-    "Overnight window: " .. (
-      schedule_snapshot.overnight and (schedule_snapshot.overnight.display_start .. " to "
-        .. schedule_snapshot.overnight.display_end
-        .. (schedule_snapshot.overnight.overnight and " (overnight)" or ""))
-      or "unknown"
-    ),
+    "Overnight window: " .. window_summary(schedule_snapshot.overnight),
     "Always blocked: " .. tostring(#snapshot.always_hosts),
     "Workday blocked: " .. tostring(#snapshot.workday_hosts),
     "After work blocked: " .. tostring(#snapshot.after_work_hosts),
@@ -65,6 +59,7 @@ end
 
 function M.render_json(snapshot)
   return util.json_encode({
+    schema_version = snapshot.schema_version,
     installed = snapshot.installed,
     router_time = snapshot.router_time,
     protection_enabled = snapshot.protection_enabled,

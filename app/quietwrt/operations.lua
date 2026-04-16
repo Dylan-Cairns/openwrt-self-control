@@ -98,7 +98,9 @@ local function status_snapshot(context)
   local now_table = context.env.now()
 
   if not install_state.installed then
-    return runtime.uninstalled_snapshot(now_table), nil
+    local snapshot = runtime.uninstalled_snapshot(now_table)
+    snapshot.schema_version = install_state.schema_version
+    return snapshot, nil
   end
 
   local parsed_config, config_error = enforcement.read_state(context)
@@ -142,6 +144,7 @@ local function status_snapshot(context)
     enforcement_ready
   )
   snapshot.router_time = runtime.format_router_time(now_table)
+  snapshot.schema_version = install_state.schema_version or snapshot.schema_version
   snapshot.install_state = install_state
   snapshot.warnings = warnings
   return snapshot, nil

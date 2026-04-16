@@ -3,9 +3,16 @@ function Show-QuietWrtStatus {
         $Status
     )
 
+    $routerTime = if ($Status.PSObject.Properties['router_time'] -and -not [string]::IsNullOrWhiteSpace([string]$Status.router_time)) {
+        [string]$Status.router_time
+    } else {
+        'unknown'
+    }
+
     Write-Host ''
     Write-Host 'QuietWrt Status'
     Write-Host "  Installed: $(if ($Status.installed) { 'yes' } else { 'no' })"
+    Write-Host "  Router time: $routerTime"
 
     $protection = if ($null -eq $Status.protection_enabled) {
         'unknown'
@@ -18,34 +25,24 @@ function Show-QuietWrtStatus {
     Write-Host "  Protection: $protection"
     Write-Host "  Enforcement ready: $(if ($Status.enforcement_ready) { 'yes' } else { 'no' })"
     Write-Host "  Always blocklist: $(if ($Status.always_enabled) { 'enabled' } else { 'disabled' })"
-    Write-Host "  Workday blocklist: $(if ($Status.workday_enabled) { 'enabled' } else { 'disabled' })"
-    Write-Host "  Workday active now: $(if ($Status.workday_active) { 'yes' } else { 'no' })"
-    $workdayWindow = Get-QuietWrtScheduleWindow -Status $Status -ScheduleName 'workday'
-    if ($workdayWindow) {
-        Write-Host "  Workday window: $(Get-QuietWrtWindowSummary -Start $workdayWindow.start -End $workdayWindow.end)"
+
+    foreach ($definition in (Get-QuietWrtScheduleDefinitions)) {
+        Write-Host "  $($definition.StatusLabel): $(if ($Status.($definition.EnabledProperty)) { 'enabled' } else { 'disabled' })"
+        Write-Host "  $($definition.ActiveLabel): $(if ($Status.($definition.ActiveProperty)) { 'yes' } else { 'no' })"
+
+        $window = Get-QuietWrtScheduleWindow -Status $Status -ScheduleName $definition.Name
+        if ($window) {
+            $windowLabel = Get-QuietWrtScheduleLabel -ScheduleName $definition.Name -Window $window
+            Write-Host "  $windowLabel window: $(Get-QuietWrtWindowSummary -Window $window)"
+        }
     }
-    Write-Host "  After work blocklist: $(if ($Status.after_work_enabled) { 'enabled' } else { 'disabled' })"
-    Write-Host "  After work active now: $(if ($Status.after_work_active) { 'yes' } else { 'no' })"
-    $afterWorkWindow = Get-QuietWrtScheduleWindow -Status $Status -ScheduleName 'after_work'
-    if ($afterWorkWindow) {
-        Write-Host "  After work window: $(Get-QuietWrtWindowSummary -Start $afterWorkWindow.start -End $afterWorkWindow.end)"
-    }
-    Write-Host "  Password vault blocklist: $(if ($Status.password_vault_enabled) { 'enabled' } else { 'disabled' })"
-    Write-Host "  Password vault active now: $(if ($Status.password_vault_active) { 'yes' } else { 'no' })"
-    $passwordVaultWindow = Get-QuietWrtScheduleWindow -Status $Status -ScheduleName 'password_vault'
-    if ($passwordVaultWindow) {
-        Write-Host "  Password vault window: $(Get-QuietWrtWindowSummary -Start $passwordVaultWindow.start -End $passwordVaultWindow.end)"
-    }
-    Write-Host "  Overnight blocking: $(if ($Status.overnight_enabled) { 'enabled' } else { 'disabled' })"
-    Write-Host "  Overnight active now: $(if ($Status.overnight_active) { 'yes' } else { 'no' })"
-    $overnightWindow = Get-QuietWrtScheduleWindow -Status $Status -ScheduleName 'overnight'
-    if ($overnightWindow) {
-        Write-Host "  Overnight window: $(Get-QuietWrtWindowSummary -Start $overnightWindow.start -End $overnightWindow.end)"
-    }
+
     Write-Host "  Always entries: $($Status.always_count)"
-    Write-Host "  Workday entries: $($Status.workday_count)"
-    Write-Host "  After work entries: $($Status.after_work_count)"
-    Write-Host "  Password vault entries: $($Status.password_vault_count)"
+    foreach ($definition in (Get-QuietWrtScheduleDefinitions)) {
+        if ($definition.CountProperty) {
+            Write-Host "  $($definition.CountLabel): $($Status.($definition.CountProperty))"
+        }
+    }
     Write-Host "  Active rules: $($Status.active_rule_count)"
     Write-Host "  DNS intercept hardening: $(if ($Status.hardening.dns_intercept) { 'yes' } else { 'no' })"
     Write-Host "  DoT blocking hardening: $(if ($Status.hardening.dot_block) { 'yes' } else { 'no' })"

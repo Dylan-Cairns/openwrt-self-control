@@ -86,6 +86,31 @@ Describe 'QuietWrt PowerShell CLI' {
         $status.installed | Should Be $true
         $status.password_vault_enabled | Should Be $false
         $status.password_vault_count | Should Be 0
+        $status.schedule.workday.name | Should Be 'workday'
+        $status.schedule.workday.label | Should Be 'Workday'
+        $status.schedule.workday.summary | Should Be '04:00 to 16:30'
+        $status.schedule.after_work.label | Should Be 'After work'
+        $status.schedule.after_work.summary | Should Be '16:30 to 19:00'
+        $status.schedule.password_vault | Should Be $null
+    }
+
+    It 'preserves richer newer router status metadata when present' {
+        Mock Test-QuietWrtCliPresent { $true }
+        Mock Invoke-QuietWrtRemote {
+            [pscustomobject]@{
+                ExitStatus = 0
+                Output = '{"schema_version":"4","installed":true,"router_time":"21:05","protection_enabled":true,"enforcement_ready":true,"always_enabled":true,"workday_enabled":true,"after_work_enabled":true,"password_vault_enabled":true,"overnight_enabled":false,"always_count":1,"workday_count":2,"after_work_count":3,"password_vault_count":4,"active_rule_count":10,"schedule":{"after_work":{"start":"1630","end":"1900","display_start":"16:30","display_end":"19:00","overnight":false,"label":"After work","summary":"16:30 to 19:00"}},"hardening":{"dns_intercept":true,"dot_block":true,"overnight_rule":false},"warnings":[]}'
+                Raw = $null
+            }
+        }
+
+        $status = Get-QuietWrtStatus -Connection ([pscustomobject]@{})
+
+        $status.schema_version | Should Be '4'
+        $status.router_time | Should Be '21:05'
+        $status.schedule.after_work.label | Should Be 'After work'
+        $status.schedule.after_work.summary | Should Be '16:30 to 19:00'
+        $status.schedule.workday | Should Be $null
         $status.schedule.password_vault | Should Be $null
     }
 
@@ -111,6 +136,16 @@ Describe 'QuietWrt PowerShell CLI' {
     It 'formats schedule windows and marks overnight ranges' {
         (Get-QuietWrtWindowSummary -Start '1630' -End '1900') | Should Be '16:30 to 19:00'
         (Get-QuietWrtWindowSummary -Start '1900' -End '0400') | Should Be '19:00 to 04:00 (overnight)'
+    }
+
+    It 'prefers router-provided window summary metadata when present' {
+        $window = [pscustomobject]@{
+            start = '1630'
+            end = '1900'
+            summary = 'Router supplied summary'
+        }
+
+        (Get-QuietWrtWindowSummary -Window $window) | Should Be 'Router supplied summary'
     }
 
     It 'dispatches the after-work toggle menu action to the router control plane' {

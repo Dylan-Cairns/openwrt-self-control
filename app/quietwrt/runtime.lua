@@ -7,21 +7,25 @@ local M = {}
 
 local function serialize_window(window)
   return {
+    name = window.name,
+    label = window.label,
     start = window.start,
     ["end"] = window["end"],
     display_start = window.display_start,
     display_end = window.display_end,
     overnight = window.overnight,
+    summary = schedule.window_summary(window),
   }
 end
 
 local function serialize_schedule_windows(windows)
-  return {
-    workday = serialize_window(windows.workday),
-    after_work = serialize_window(windows.after_work),
-    password_vault = serialize_window(windows.password_vault),
-    overnight = serialize_window(windows.overnight),
-  }
+  local serialized = {}
+
+  for _, definition in ipairs(schema.SCHEDULES) do
+    serialized[definition.name] = serialize_window(windows[definition.name])
+  end
+
+  return serialized
 end
 
 function M.build_schedule_windows(settings)
@@ -109,6 +113,7 @@ function M.build_view_state(parsed_config, lists, settings, activity, hardening_
   end
 
   return {
+    schema_version = settings.schema_version,
     installed = installed,
     protection_enabled = protection_enabled,
     enforcement_ready = enforcement_ready,
@@ -157,7 +162,7 @@ function M.uninstalled_snapshot(now_table)
       password_vault_enabled = false,
       overnight_enabled = false,
     },
-    schedule = {},
+    schedule = util.json_object(),
     always_hosts = {},
     workday_hosts = {},
     after_work_hosts = {},

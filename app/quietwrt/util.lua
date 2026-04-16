@@ -1,4 +1,7 @@
 local M = {}
+local json_object_mt = {
+  __json_object = true,
+}
 
 function M.trim(value)
   return (tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
@@ -151,6 +154,10 @@ local function is_array(value)
     return false
   end
 
+  if getmetatable(value) == json_object_mt then
+    return false
+  end
+
   local count = 0
   for key, _ in pairs(value) do
     if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then
@@ -160,6 +167,10 @@ local function is_array(value)
   end
 
   return count == #value
+end
+
+function M.json_object(value)
+  return setmetatable(value or {}, json_object_mt)
 end
 
 function M.json_encode(value)

@@ -41,11 +41,65 @@ function Format-QuietWrtScheduleValue {
     return '{0}:{1}' -f $Value.Substring(0, 2), $Value.Substring(2, 2)
 }
 
+function Get-QuietWrtScheduleLabel {
+    param(
+        [string]$ScheduleName,
+        $Window
+    )
+
+    if ($null -ne $Window) {
+        $labelProperty = $Window.PSObject.Properties['label']
+        if ($labelProperty -and -not [string]::IsNullOrWhiteSpace([string]$labelProperty.Value)) {
+            return [string]$labelProperty.Value
+        }
+    }
+
+    $definition = Get-QuietWrtScheduleDefinition -ScheduleName $ScheduleName
+    if ($definition) {
+        return $definition.Label
+    }
+
+    return [string]$ScheduleName
+}
+
 function Get-QuietWrtWindowSummary {
     param(
+        $Window,
         [string]$Start,
         [string]$End
     )
+
+    if ($null -ne $Window) {
+        $summaryProperty = $Window.PSObject.Properties['summary']
+        if ($summaryProperty -and -not [string]::IsNullOrWhiteSpace([string]$summaryProperty.Value)) {
+            return [string]$summaryProperty.Value
+        }
+
+        $displayStartProperty = $Window.PSObject.Properties['display_start']
+        $displayEndProperty = $Window.PSObject.Properties['display_end']
+        $overnightProperty = $Window.PSObject.Properties['overnight']
+        if (
+            $displayStartProperty -and $displayEndProperty `
+            -and -not [string]::IsNullOrWhiteSpace([string]$displayStartProperty.Value) `
+            -and -not [string]::IsNullOrWhiteSpace([string]$displayEndProperty.Value)
+        ) {
+            $summary = "$($displayStartProperty.Value) to $($displayEndProperty.Value)"
+            if ($overnightProperty -and [bool]$overnightProperty.Value) {
+                return "$summary (overnight)"
+            }
+
+            return $summary
+        }
+
+        $startProperty = $Window.PSObject.Properties['start']
+        $endProperty = $Window.PSObject.Properties['end']
+        if ($startProperty) {
+            $Start = [string]$startProperty.Value
+        }
+        if ($endProperty) {
+            $End = [string]$endProperty.Value
+        }
+    }
 
     $summary = "$(Format-QuietWrtScheduleValue -Value $Start) to $(Format-QuietWrtScheduleValue -Value $End)"
     if ($Start -gt $End) {
@@ -119,17 +173,12 @@ function Update-QuietWrtScheduleWindow {
         $Status
     )
 
-    $label = switch ($ScheduleName) {
-        'workday' { 'Workday' }
-        'after_work' { 'After work' }
-        'password_vault' { 'Password vault' }
-        'overnight' { 'Overnight' }
-    }
-
     $currentWindow = Get-QuietWrtScheduleWindow -Status $Status -ScheduleName $ScheduleName
+    $label = Get-QuietWrtScheduleLabel -ScheduleName $ScheduleName -Window $currentWindow
+
     if ($currentWindow) {
         Write-Host ''
-        Write-Host "$label window: $(Get-QuietWrtWindowSummary -Start $currentWindow.start -End $currentWindow.end)"
+        Write-Host "$label window: $(Get-QuietWrtWindowSummary -Window $currentWindow)"
     }
 
     $start = Read-QuietWrtScheduleValue -Prompt "$label start time (HHMM)"

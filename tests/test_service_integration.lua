@@ -377,6 +377,96 @@ function TestServiceIntegration:test_status_json_reports_disabled_protection_and
   fixture.cleanup()
 end
 
+function TestServiceIntegration:test_status_json_contract_exposes_router_time_schedule_windows_hardening_and_warnings()
+  local fixture = installed_fixture({
+    now = function()
+      return { hour = 21, min = 5 }
+    end,
+  })
+
+  helper.write_config(fixture.paths.config_path, {})
+  helper.write_file(fixture.paths.always_list_path, "example.com\n")
+  helper.write_file(fixture.paths.workday_list_path, "work.example\n")
+  helper.write_file(fixture.paths.after_work_list_path, "after.example\n")
+  helper.write_file(fixture.paths.password_vault_list_path, "vault.example\n")
+  helper.write_file(fixture.paths.passthrough_rules_path, "")
+
+  local context = service.new_context({
+    env = fixture.env,
+    paths = fixture.paths,
+  })
+
+  local ok, output = service.status(context, {
+    json = true,
+  })
+  lu.assertTrue(ok)
+  lu.assertStrContains(output, '"schema_version":"3"')
+  lu.assertStrContains(output, '"installed":true')
+  lu.assertStrContains(output, '"router_time":"21:05"')
+  lu.assertStrContains(output, '"schedule":{')
+  lu.assertStrContains(output, '"workday":{')
+  lu.assertStrContains(output, '"name":"workday"')
+  lu.assertStrContains(output, '"label":"Workday"')
+  lu.assertStrContains(output, '"summary":"04:00 to 16:30"')
+  lu.assertStrContains(output, '"after_work":{')
+  lu.assertStrContains(output, '"name":"after_work"')
+  lu.assertStrContains(output, '"label":"After work"')
+  lu.assertStrContains(output, '"summary":"16:30 to 19:00"')
+  lu.assertStrContains(output, '"password_vault":{')
+  lu.assertStrContains(output, '"name":"password_vault"')
+  lu.assertStrContains(output, '"label":"Password vault"')
+  lu.assertStrContains(output, '"summary":"09:45 to 09:30 (overnight)"')
+  lu.assertStrContains(output, '"overnight":{')
+  lu.assertStrContains(output, '"name":"overnight"')
+  lu.assertStrContains(output, '"label":"Overnight"')
+  lu.assertStrContains(output, '"summary":"19:00 to 04:00 (overnight)"')
+  lu.assertStrContains(output, '"start":"0400"')
+  lu.assertStrContains(output, '"display_start":"04:00"')
+  lu.assertStrContains(output, '"start":"1630"')
+  lu.assertStrContains(output, '"display_start":"16:30"')
+  lu.assertStrContains(output, '"start":"0945"')
+  lu.assertStrContains(output, '"display_start":"09:45"')
+  lu.assertStrContains(output, '"start":"1900"')
+  lu.assertStrContains(output, '"display_start":"19:00"')
+  lu.assertStrContains(output, '"hardening":{')
+  lu.assertStrContains(output, '"dns_intercept":false')
+  lu.assertStrContains(output, '"dot_block":false')
+  lu.assertStrContains(output, '"overnight_rule":false')
+  lu.assertStrContains(output, '"warnings":[]')
+  fixture.cleanup()
+end
+
+function TestServiceIntegration:test_status_json_uninstalled_contract_remains_machine_readable()
+  local fixture = helper.make_context({
+    now = function()
+      return { hour = 6, min = 7 }
+    end,
+  })
+  helper.write_config(fixture.paths.config_path, {})
+
+  local context = service.new_context({
+    env = fixture.env,
+    paths = fixture.paths,
+  })
+
+  local ok, output = service.status(context, {
+    json = true,
+  })
+  lu.assertTrue(ok)
+  lu.assertStrContains(output, '"installed":false')
+  lu.assertStrContains(output, '"router_time":"06:07"')
+  lu.assertStrContains(output, '"always_count":0')
+  lu.assertStrContains(output, '"workday_count":0')
+  lu.assertStrContains(output, '"after_work_count":0')
+  lu.assertStrContains(output, '"password_vault_count":0')
+  lu.assertStrContains(output, '"schedule":{}')
+  lu.assertStrContains(output, '"warnings":[]')
+  lu.assertStrContains(output, '"dns_intercept":false')
+  lu.assertStrContains(output, '"dot_block":false')
+  lu.assertStrContains(output, '"overnight_rule":false')
+  fixture.cleanup()
+end
+
 function TestServiceIntegration:test_set_toggle_updates_settings_and_reapplies()
   local fixture = installed_fixture()
 
