@@ -9,6 +9,10 @@ M.DEFAULT_WINDOWS = {
     start = "1630",
     ["end"] = "1900",
   },
+  password_vault = {
+    start = "0945",
+    ["end"] = "0930",
+  },
   overnight = {
     start = "1900",
     ["end"] = "0400",
@@ -18,6 +22,7 @@ M.DEFAULT_WINDOWS = {
 local WINDOW_LABELS = {
   workday = "Workday",
   after_work = "After work",
+  password_vault = "Password vault",
   overnight = "Overnight",
 }
 
@@ -36,6 +41,7 @@ function M.default_windows()
   return {
     workday = copy_window(M.DEFAULT_WINDOWS.workday),
     after_work = copy_window(M.DEFAULT_WINDOWS.after_work),
+    password_vault = copy_window(M.DEFAULT_WINDOWS.password_vault),
     overnight = copy_window(M.DEFAULT_WINDOWS.overnight),
   }
 end

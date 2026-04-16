@@ -6,15 +6,18 @@ TestServiceIntegration = {}
 
 local function installed_capture_map(overrides)
   local capture = {
-    ["uci -q get quietwrt.settings.schema_version"] = "2",
+    ["uci -q get quietwrt.settings.schema_version"] = "3",
     ["uci -q get quietwrt.settings.always_enabled"] = "1",
     ["uci -q get quietwrt.settings.workday_enabled"] = "1",
     ["uci -q get quietwrt.settings.after_work_enabled"] = "1",
+    ["uci -q get quietwrt.settings.password_vault_enabled"] = "1",
     ["uci -q get quietwrt.settings.overnight_enabled"] = "1",
     ["uci -q get quietwrt.settings.workday_start"] = "0400",
     ["uci -q get quietwrt.settings.workday_end"] = "1630",
     ["uci -q get quietwrt.settings.after_work_start"] = "1630",
     ["uci -q get quietwrt.settings.after_work_end"] = "1900",
+    ["uci -q get quietwrt.settings.password_vault_start"] = "0945",
+    ["uci -q get quietwrt.settings.password_vault_end"] = "0930",
     ["uci -q get quietwrt.settings.overnight_start"] = "1900",
     ["uci -q get quietwrt.settings.overnight_end"] = "0400",
   }
@@ -74,17 +77,21 @@ function TestServiceIntegration:test_install_bootstraps_lists_sets_default_sched
   lu.assertEquals(helper.read_file(fixture.paths.always_list_path), "example.com\n")
   lu.assertEquals(helper.read_file(fixture.paths.workday_list_path), "")
   lu.assertEquals(helper.read_file(fixture.paths.after_work_list_path), "")
+  lu.assertEquals(helper.read_file(fixture.paths.password_vault_list_path), "")
   lu.assertEquals(helper.read_file(fixture.paths.passthrough_rules_path), "@@||allowed.com^\n")
 
   local crontab = helper.read_file(fixture.paths.crontab_path)
   lu.assertStrContains(crontab, "*/10 * * * * /usr/bin/quietwrtctl sync")
   lu.assertStrContains(crontab, "0 4 * * * /usr/bin/quietwrtctl sync")
+  lu.assertStrContains(crontab, "30 9 * * * /usr/bin/quietwrtctl sync")
+  lu.assertStrContains(crontab, "45 9 * * * /usr/bin/quietwrtctl sync")
   lu.assertStrContains(crontab, "30 16 * * * /usr/bin/quietwrtctl sync")
   lu.assertStrContains(crontab, "0 19 * * * /usr/bin/quietwrtctl sync")
 
   local joined = table.concat(fixture.commands, "\n")
-  lu.assertStrContains(joined, "uci set quietwrt.settings.schema_version='2'")
+  lu.assertStrContains(joined, "uci set quietwrt.settings.schema_version='3'")
   lu.assertStrContains(joined, "uci set quietwrt.settings.after_work_enabled='1'")
+  lu.assertStrContains(joined, "uci set quietwrt.settings.password_vault_enabled='1'")
   lu.assertStrContains(joined, "uci set quietwrt.settings.overnight_start='1900'")
   lu.assertStrContains(joined, "uci set firewall.quietwrt_curfew.enabled='0'")
   fixture.cleanup()
@@ -105,6 +112,7 @@ function TestServiceIntegration:test_install_fails_closed_when_adguard_protectio
   lu.assertNil(helper.read_file(fixture.paths.always_list_path))
   lu.assertNil(helper.read_file(fixture.paths.workday_list_path))
   lu.assertNil(helper.read_file(fixture.paths.after_work_list_path))
+  lu.assertNil(helper.read_file(fixture.paths.password_vault_list_path))
   fixture.cleanup()
 end
 
@@ -130,6 +138,7 @@ function TestServiceIntegration:test_add_entry_moves_host_to_always_and_updates_
   helper.write_file(fixture.paths.always_list_path, "")
   helper.write_file(fixture.paths.workday_list_path, "example.com\n")
   helper.write_file(fixture.paths.after_work_list_path, "")
+  helper.write_file(fixture.paths.password_vault_list_path, "")
   helper.write_file(fixture.paths.passthrough_rules_path, "")
 
   local context = service.new_context({
@@ -181,6 +190,7 @@ function TestServiceIntegration:test_invalid_manual_host_line_is_rejected()
   helper.write_file(fixture.paths.always_list_path, "Example.com\n")
   helper.write_file(fixture.paths.workday_list_path, "")
   helper.write_file(fixture.paths.after_work_list_path, "")
+  helper.write_file(fixture.paths.password_vault_list_path, "")
   helper.write_file(fixture.paths.passthrough_rules_path, "")
 
   local context = service.new_context({
@@ -210,6 +220,7 @@ function TestServiceIntegration:test_firewall_failure_restores_previous_state()
   helper.write_file(fixture.paths.always_list_path, "example.com\n")
   helper.write_file(fixture.paths.workday_list_path, "")
   helper.write_file(fixture.paths.after_work_list_path, "")
+  helper.write_file(fixture.paths.password_vault_list_path, "")
   helper.write_file(fixture.paths.passthrough_rules_path, "")
 
   local original = helper.read_file(fixture.paths.config_path)
@@ -249,6 +260,7 @@ function TestServiceIntegration:test_install_rolls_back_bootstrapped_lists_sched
   lu.assertNil(helper.read_file(fixture.paths.always_list_path))
   lu.assertNil(helper.read_file(fixture.paths.workday_list_path))
   lu.assertNil(helper.read_file(fixture.paths.after_work_list_path))
+  lu.assertNil(helper.read_file(fixture.paths.password_vault_list_path))
   lu.assertNil(helper.read_file(fixture.paths.passthrough_rules_path))
   lu.assertNil(helper.read_file(fixture.paths.crontab_path))
 
@@ -287,6 +299,7 @@ function TestServiceIntegration:test_apply_current_mode_fails_closed_when_adguar
   helper.write_file(fixture.paths.always_list_path, "example.com\n")
   helper.write_file(fixture.paths.workday_list_path, "")
   helper.write_file(fixture.paths.after_work_list_path, "")
+  helper.write_file(fixture.paths.password_vault_list_path, "")
   helper.write_file(fixture.paths.passthrough_rules_path, "")
 
   local context = service.new_context({
@@ -314,6 +327,7 @@ function TestServiceIntegration:test_status_json_reports_flags_counts_schedules_
   helper.write_file(fixture.paths.always_list_path, "example.com\n")
   helper.write_file(fixture.paths.workday_list_path, "work.com\n")
   helper.write_file(fixture.paths.after_work_list_path, "after.example\n")
+  helper.write_file(fixture.paths.password_vault_list_path, "vault.example\n")
   helper.write_file(fixture.paths.passthrough_rules_path, "")
 
   local context = service.new_context({
@@ -328,8 +342,13 @@ function TestServiceIntegration:test_status_json_reports_flags_counts_schedules_
   lu.assertStrContains(output, '"installed":true')
   lu.assertStrContains(output, '"workday_enabled":false')
   lu.assertStrContains(output, '"after_work_enabled":true')
+  lu.assertStrContains(output, '"password_vault_enabled":true')
   lu.assertStrContains(output, '"after_work_count":1')
+  lu.assertStrContains(output, '"password_vault_count":1')
   lu.assertStrContains(output, '"display_start":"16:30"')
+  lu.assertStrContains(output, '"password_vault":{')
+  lu.assertStrContains(output, '"display_start":"09:45"')
+  lu.assertStrContains(output, '"start":"0945"')
   lu.assertStrContains(output, '"dns_intercept":true')
   fixture.cleanup()
 end
@@ -341,6 +360,7 @@ function TestServiceIntegration:test_status_json_reports_disabled_protection_and
   helper.write_file(fixture.paths.always_list_path, "example.com\n")
   helper.write_file(fixture.paths.workday_list_path, "")
   helper.write_file(fixture.paths.after_work_list_path, "")
+  helper.write_file(fixture.paths.password_vault_list_path, "")
   helper.write_file(fixture.paths.passthrough_rules_path, "")
 
   local context = service.new_context({
@@ -364,6 +384,7 @@ function TestServiceIntegration:test_set_toggle_updates_settings_and_reapplies()
   helper.write_file(fixture.paths.always_list_path, "example.com\n")
   helper.write_file(fixture.paths.workday_list_path, "work.com\n")
   helper.write_file(fixture.paths.after_work_list_path, "after.example\n")
+  helper.write_file(fixture.paths.password_vault_list_path, "vault.example\n")
   helper.write_file(fixture.paths.passthrough_rules_path, "")
 
   local context = service.new_context({
@@ -377,7 +398,7 @@ function TestServiceIntegration:test_set_toggle_updates_settings_and_reapplies()
 
   local joined = table.concat(fixture.commands, "\n")
   lu.assertStrContains(joined, "uci set quietwrt.settings.after_work_enabled='0'")
-  lu.assertStrContains(joined, "uci set quietwrt.settings.schema_version='2'")
+  lu.assertStrContains(joined, "uci set quietwrt.settings.schema_version='3'")
   fixture.cleanup()
 end
 
@@ -388,6 +409,7 @@ function TestServiceIntegration:test_set_schedule_updates_cron_and_reapplies()
   helper.write_file(fixture.paths.always_list_path, "example.com\n")
   helper.write_file(fixture.paths.workday_list_path, "work.com\n")
   helper.write_file(fixture.paths.after_work_list_path, "after.example\n")
+  helper.write_file(fixture.paths.password_vault_list_path, "vault.example\n")
   helper.write_file(fixture.paths.passthrough_rules_path, "")
 
   local context = service.new_context({
@@ -417,6 +439,7 @@ function TestServiceIntegration:test_restore_lists_updates_only_the_provided_bac
   helper.write_file(fixture.paths.always_list_path, "old.example\n")
   helper.write_file(fixture.paths.workday_list_path, "work.example\n")
   helper.write_file(fixture.paths.after_work_list_path, "after.example\n")
+  helper.write_file(fixture.paths.password_vault_list_path, "vault.example\n")
   helper.write_file(fixture.paths.passthrough_rules_path, "")
 
   local restore_after_work_path = helper.join_path(fixture.root, "quietwrt-after-work-restore.txt")
@@ -434,6 +457,7 @@ function TestServiceIntegration:test_restore_lists_updates_only_the_provided_bac
   lu.assertEquals(result.active_rule_count > 0, true)
   lu.assertEquals(helper.read_file(fixture.paths.always_list_path), "old.example\n")
   lu.assertEquals(helper.read_file(fixture.paths.after_work_list_path), "new-after.example\n")
+  lu.assertEquals(helper.read_file(fixture.paths.password_vault_list_path), "vault.example\n")
 
   local config = helper.read_file(fixture.paths.config_path)
   lu.assertStrContains(config, "||new-after.example^")

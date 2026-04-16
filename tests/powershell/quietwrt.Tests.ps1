@@ -7,6 +7,7 @@ Describe 'QuietWrt PowerShell CLI' {
             always_enabled = $true
             workday_enabled = $false
             after_work_enabled = $true
+            password_vault_enabled = $false
             overnight_enabled = $true
         }
 
@@ -16,9 +17,10 @@ Describe 'QuietWrt PowerShell CLI' {
         $lines[1] | Should Be '2. Disable always-on blocklist'
         $lines[2] | Should Be '3. Enable workday blocklist'
         $lines[3] | Should Be '4. Disable after-work blocklist'
-        $lines[4] | Should Be '5. Disable overnight blocking'
-        $lines[8] | Should Be '9. Backup all blocklists to this PC'
-        $lines[9] | Should Be '10. Restore latest backup'
+        $lines[4] | Should Be '5. Enable password vault blocklist'
+        $lines[5] | Should Be '6. Disable overnight blocking'
+        $lines[10] | Should Be '11. Backup all blocklists to this PC'
+        $lines[11] | Should Be '12. Restore latest backup'
     }
 
     It 'prompts for the router password using visible input when none is supplied' {
@@ -39,6 +41,7 @@ Describe 'QuietWrt PowerShell CLI' {
         $status.installed | Should Be $false
         $status.enforcement_ready | Should Be $false
         $status.after_work_enabled | Should Be $false
+        $status.password_vault_enabled | Should Be $false
     }
 
     It 'renders placeholder status without schedule property errors' {
@@ -53,7 +56,7 @@ Describe 'QuietWrt PowerShell CLI' {
         Mock Invoke-QuietWrtRemote {
             [pscustomobject]@{
                 ExitStatus = 0
-                Output = '{"installed":true,"protection_enabled":false,"enforcement_ready":false,"always_enabled":true,"workday_enabled":false,"after_work_enabled":true,"overnight_enabled":true,"workday_active":false,"after_work_active":true,"overnight_active":false,"always_count":1,"workday_count":0,"after_work_count":1,"active_rule_count":2,"schedule":{"workday":{"start":"0400","end":"1630","display_start":"04:00","display_end":"16:30","overnight":false},"after_work":{"start":"1630","end":"1900","display_start":"16:30","display_end":"19:00","overnight":false},"overnight":{"start":"1900","end":"0400","display_start":"19:00","display_end":"04:00","overnight":true}},"hardening":{"dns_intercept":true,"dot_block":true,"overnight_rule":true},"warnings":["AdGuard Home protection is disabled."]}'
+                Output = '{"installed":true,"protection_enabled":false,"enforcement_ready":false,"always_enabled":true,"workday_enabled":false,"after_work_enabled":true,"password_vault_enabled":true,"overnight_enabled":true,"workday_active":false,"after_work_active":true,"password_vault_active":false,"overnight_active":false,"always_count":1,"workday_count":0,"after_work_count":1,"password_vault_count":1,"active_rule_count":3,"schedule":{"workday":{"start":"0400","end":"1630","display_start":"04:00","display_end":"16:30","overnight":false},"after_work":{"start":"1630","end":"1900","display_start":"16:30","display_end":"19:00","overnight":false},"password_vault":{"start":"0945","end":"0930","display_start":"09:45","display_end":"09:30","overnight":true},"overnight":{"start":"1900","end":"0400","display_start":"19:00","display_end":"04:00","overnight":true}},"hardening":{"dns_intercept":true,"dot_block":true,"overnight_rule":true},"warnings":["AdGuard Home protection is disabled."]}'
                 Raw = $null
             }
         }
@@ -63,7 +66,27 @@ Describe 'QuietWrt PowerShell CLI' {
         $status.enforcement_ready | Should Be $false
         $status.protection_enabled | Should Be $false
         $status.schedule.after_work.start | Should Be '1630'
+        $status.schedule.password_vault.start | Should Be '0945'
         $status.after_work_active | Should Be $true
+        $status.password_vault_count | Should Be 1
+    }
+
+    It 'fills missing newer status fields when talking to an older router payload' {
+        Mock Test-QuietWrtCliPresent { $true }
+        Mock Invoke-QuietWrtRemote {
+            [pscustomobject]@{
+                ExitStatus = 0
+                Output = '{"installed":true,"always_enabled":true,"workday_enabled":true,"after_work_enabled":true,"overnight_enabled":false,"workday_active":false,"after_work_active":false,"overnight_active":false,"always_count":1,"workday_count":1,"after_work_count":1,"active_rule_count":2,"schedule":{"workday":{"start":"0400","end":"1630","display_start":"04:00","display_end":"16:30","overnight":false},"after_work":{"start":"1630","end":"1900","display_start":"16:30","display_end":"19:00","overnight":false},"overnight":{"start":"1900","end":"0400","display_start":"19:00","display_end":"04:00","overnight":true}},"hardening":{"dns_intercept":true,"dot_block":true,"overnight_rule":false},"warnings":[]}'
+                Raw = $null
+            }
+        }
+
+        $status = Get-QuietWrtStatus -Connection ([pscustomobject]@{})
+
+        $status.installed | Should Be $true
+        $status.password_vault_enabled | Should Be $false
+        $status.password_vault_count | Should Be 0
+        $status.schedule.password_vault | Should Be $null
     }
 
     It 'throws when quietwrtctl status returns invalid json' {
@@ -95,6 +118,7 @@ Describe 'QuietWrt PowerShell CLI' {
             always_enabled = $true
             workday_enabled = $true
             after_work_enabled = $true
+            password_vault_enabled = $true
             overnight_enabled = $true
         }
         $updatedStatus = [pscustomobject]@{
@@ -102,15 +126,18 @@ Describe 'QuietWrt PowerShell CLI' {
             always_enabled = $true
             workday_enabled = $true
             after_work_enabled = $false
+            password_vault_enabled = $true
             overnight_enabled = $true
             protection_enabled = $true
             workday_active = $false
             after_work_active = $false
+            password_vault_active = $false
             overnight_active = $false
             always_count = 1
             workday_count = 0
             after_work_count = 0
-            active_rule_count = 1
+            password_vault_count = 1
+            active_rule_count = 2
             schedule = [pscustomobject]@{}
             hardening = [pscustomobject]@{
                 dns_intercept = $true
@@ -136,15 +163,18 @@ Describe 'QuietWrt PowerShell CLI' {
             always_enabled = $true
             workday_enabled = $true
             after_work_enabled = $true
+            password_vault_enabled = $true
             overnight_enabled = $true
             protection_enabled = $true
             workday_active = $false
             after_work_active = $true
+            password_vault_active = $false
             overnight_active = $false
             always_count = 2
             workday_count = 3
             after_work_count = 4
-            active_rule_count = 9
+            password_vault_count = 5
+            active_rule_count = 14
             schedule = [pscustomobject]@{}
             hardening = [pscustomobject]@{
                 dns_intercept = $true
@@ -198,6 +228,7 @@ Describe 'QuietWrt PowerShell CLI' {
         $names.Always | Should Be 'C:\temp\quietwrt-always-2026-04-10-080910.txt'
         $names.Workday | Should Be 'C:\temp\quietwrt-workday-2026-04-10-080910.txt'
         $names.AfterWork | Should Be 'C:\temp\quietwrt-after-work-2026-04-10-080910.txt'
+        $names.PasswordVault | Should Be 'C:\temp\quietwrt-password-vault-2026-04-10-080910.txt'
     }
 
     It 'selects the newest backup file for each list type' {
@@ -208,12 +239,15 @@ Describe 'QuietWrt PowerShell CLI' {
         Set-Content -LiteralPath (Join-Path $TestDrive 'quietwrt-workday-2026-04-11-080910.txt') -Value 'd'
         Set-Content -LiteralPath (Join-Path $TestDrive 'quietwrt-after-work-2026-04-07-080910.txt') -Value 'e'
         Set-Content -LiteralPath (Join-Path $TestDrive 'quietwrt-after-work-2026-04-12-080910.txt') -Value 'f'
+        Set-Content -LiteralPath (Join-Path $TestDrive 'quietwrt-password-vault-2026-04-06-080910.txt') -Value 'g'
+        Set-Content -LiteralPath (Join-Path $TestDrive 'quietwrt-password-vault-2026-04-13-080910.txt') -Value 'h'
 
         $selection = Get-QuietWrtLatestBackupSelection -BackupDirectory $TestDrive
 
         $selection.Always.Name | Should Be 'quietwrt-always-2026-04-10-080910.txt'
         $selection.Workday.Name | Should Be 'quietwrt-workday-2026-04-11-080910.txt'
         $selection.AfterWork.Name | Should Be 'quietwrt-after-work-2026-04-12-080910.txt'
+        $selection.PasswordVault.Name | Should Be 'quietwrt-password-vault-2026-04-13-080910.txt'
     }
 
     It 'throws if a backup source file is missing on the router' {
@@ -241,38 +275,48 @@ Describe 'QuietWrt PowerShell CLI' {
             if ($Path -eq '/etc/quietwrt/after-work-blocked.txt') {
                 Set-Content -LiteralPath (Join-Path $Destination 'after-work-blocked.txt') -Value 'after.example' -NoNewline
             }
+            if ($Path -eq '/etc/quietwrt/password-vault-blocked.txt') {
+                Set-Content -LiteralPath (Join-Path $Destination 'password-vault-blocked.txt') -Value 'vault.example' -NoNewline
+            }
         }
 
         $paths = Backup-QuietWrtBlocklists -Connection ([pscustomobject]@{ SftpSession = [pscustomobject]@{} }) -OutputDirectory $TestDrive
 
         $paths.AfterWork | Should Be $expected.AfterWork
+        $paths.PasswordVault | Should Be $expected.PasswordVault
         (Get-Content -LiteralPath $paths.Always -Raw) | Should Be 'always.example'
         (Get-Content -LiteralPath $paths.Workday -Raw) | Should Be 'workday.example'
         (Get-Content -LiteralPath $paths.AfterWork -Raw) | Should Be 'after.example'
+        (Get-Content -LiteralPath $paths.PasswordVault -Raw) | Should Be 'vault.example'
     }
 
     It 'restores the newest available backups to the router after confirmation' {
         $alwaysPath = Join-Path $TestDrive 'quietwrt-always-2026-04-10-080910.txt'
         $workdayPath = Join-Path $TestDrive 'quietwrt-workday-2026-04-11-080910.txt'
         $afterWorkPath = Join-Path $TestDrive 'quietwrt-after-work-2026-04-12-080910.txt'
+        $passwordVaultPath = Join-Path $TestDrive 'quietwrt-password-vault-2026-04-13-080910.txt'
         Set-Content -LiteralPath $alwaysPath -Value 'always.example' -NoNewline
         Set-Content -LiteralPath $workdayPath -Value 'workday.example' -NoNewline
         Set-Content -LiteralPath $afterWorkPath -Value 'after.example' -NoNewline
+        Set-Content -LiteralPath $passwordVaultPath -Value 'vault.example' -NoNewline
 
         $updatedStatus = [pscustomobject]@{
             installed = $true
             always_enabled = $true
             workday_enabled = $true
             after_work_enabled = $true
+            password_vault_enabled = $true
             overnight_enabled = $true
             protection_enabled = $true
             workday_active = $false
             after_work_active = $true
+            password_vault_active = $false
             overnight_active = $false
             always_count = 1
             workday_count = 1
             after_work_count = 1
-            active_rule_count = 3
+            password_vault_count = 1
+            active_rule_count = 4
             schedule = [pscustomobject]@{}
             hardening = [pscustomobject]@{
                 dns_intercept = $true
@@ -289,6 +333,7 @@ Describe 'QuietWrt PowerShell CLI' {
                 Always = Get-Item -LiteralPath $alwaysPath
                 Workday = Get-Item -LiteralPath $workdayPath
                 AfterWork = Get-Item -LiteralPath $afterWorkPath
+                PasswordVault = Get-Item -LiteralPath $passwordVaultPath
             }
         }
         Mock Read-Host { 'y' }
@@ -299,9 +344,9 @@ Describe 'QuietWrt PowerShell CLI' {
         $status = Restore-QuietWrtBlocklists -Connection ([pscustomobject]@{ SftpSession = [pscustomobject]@{} }) -BackupDirectory $TestDrive
 
         $status.installed | Should Be $true
-        Assert-MockCalled Send-QuietWrtSftpItem -Times 3 -Exactly
+        Assert-MockCalled Send-QuietWrtSftpItem -Times 4 -Exactly
         Assert-MockCalled Invoke-QuietWrtRemote -Times 1 -ParameterFilter { $Command -match '^mkdir -p /tmp/quietwrt-restore-' }
-        Assert-MockCalled Invoke-QuietWrtRemote -Times 1 -ParameterFilter { $Command -match 'quietwrtctl restore --always ' -and $Command -match '--workday ' -and $Command -match '--after-work ' }
+        Assert-MockCalled Invoke-QuietWrtRemote -Times 1 -ParameterFilter { $Command -match 'quietwrtctl restore --always ' -and $Command -match '--workday ' -and $Command -match '--after-work ' -and $Command -match '--password-vault ' }
     }
 
     It 'uploads the router payload over sftp and stages it into the final paths' {

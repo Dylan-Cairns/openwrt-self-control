@@ -158,10 +158,12 @@ function M.render_page(script_name, state)
   local always_hosts = state.always_hosts or {}
   local workday_hosts = state.workday_hosts or {}
   local after_work_hosts = state.after_work_hosts or {}
+  local password_vault_hosts = state.password_vault_hosts or {}
   local schedule_state = state.schedule or {}
   local always_list = render_rule_list(always_hosts, "No always-blocked domains.")
   local workday_list = render_rule_list(workday_hosts, "No workday-blocked domains.")
   local after_work_list = render_rule_list(after_work_hosts, "No after-work-blocked domains.")
+  local password_vault_list = render_rule_list(password_vault_hosts, "No password vault blocked domains.")
 
   M.send_html()
   write("<!doctype html>\n")
@@ -240,6 +242,10 @@ function M.render_page(script_name, state)
     render_enabled_chip(settings.after_work_enabled),
     render_activity_chip(settings.after_work_enabled, state.after_work_active),
   }, render_window_detail(schedule_state.after_work)), "\n")
+  write(render_status_item("Password vault blocklist", {
+    render_enabled_chip(settings.password_vault_enabled),
+    render_activity_chip(settings.password_vault_enabled, state.password_vault_active),
+  }, render_window_detail(schedule_state.password_vault)), "\n")
   write(render_status_item("Overnight lockout", {
     render_enabled_chip(settings.overnight_enabled),
     render_activity_chip(settings.overnight_enabled, state.overnight_active),
@@ -270,6 +276,7 @@ function M.render_page(script_name, state)
   write("<option value=\"always\">Always blocked</option>\n")
   write("<option value=\"workday\">Workday blocked</option>\n")
   write("<option value=\"after_work\">After work blocked</option>\n")
+  write("<option value=\"password_vault\">Password vault blocked</option>\n")
   write("</select>\n")
   write("</div>\n")
   write("<div class=\"button-wrap\"><button type=\"submit\">Add Entry</button></div>\n")
@@ -293,6 +300,11 @@ function M.render_page(script_name, state)
   write("<div class=\"section-title\"><h3>After work blocked</h3><span class=\"count-badge\">", tostring(#after_work_hosts), " entries</span></div>\n")
   write("<p class=\"field-help\">These domains are added during the after-work schedule window only.</p>\n")
   write(after_work_list, "\n")
+  write("</div>\n")
+  write("<div class=\"panel list-panel\">\n")
+  write("<div class=\"section-title\"><h3>Password vault blocked</h3><span class=\"count-badge\">", tostring(#password_vault_hosts), " entries</span></div>\n")
+  write("<p class=\"field-help\">These domains are added during the password vault schedule window only.</p>\n")
+  write(password_vault_list, "\n")
   write("</div>\n")
   write("</section>\n")
   write("</div>\n")

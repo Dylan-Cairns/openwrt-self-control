@@ -23,6 +23,13 @@ function TestSchedule:test_build_window_marks_wraparound_ranges_as_overnight()
   lu.assertEquals(schedule.window_summary(window), "19:00 to 04:00 (overnight)")
 end
 
+function TestSchedule:test_default_password_vault_window_is_overnight()
+  local defaults = schedule.default_windows()
+  local window = schedule.build_window("password_vault", defaults.password_vault.start, defaults.password_vault["end"])
+  lu.assertTrue(window.overnight)
+  lu.assertEquals(schedule.window_summary(window), "09:45 to 09:30 (overnight)")
+end
+
 function TestSchedule:test_rejects_equal_start_and_end_times()
   local window, err = schedule.build_window("workday", "1200", "1200")
   lu.assertNil(window)

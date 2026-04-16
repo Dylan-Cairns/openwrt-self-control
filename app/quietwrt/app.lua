@@ -53,11 +53,13 @@ function M.run_cgi(options)
     settings = state and state.settings or {},
     workday_active = state and state.workday_active,
     after_work_active = state and state.after_work_active,
+    password_vault_active = state and state.password_vault_active,
     overnight_active = state and state.overnight_active,
     schedule = state and state.schedule or {},
     always_hosts = state and state.always_hosts or {},
     workday_hosts = state and state.workday_hosts or {},
     after_work_hosts = state and state.after_work_hosts or {},
+    password_vault_hosts = state and state.password_vault_hosts or {},
     active_rules = state and state.active_rules or {},
     active_rule_count = state and state.active_rule_count or 0,
   })
@@ -72,9 +74,9 @@ Commands:
   sync      Rebuild AdGuard rules for the current time and update curfew firewall state.
   apply     Alias for sync.
   status    Show current list counts and schedule state. Use --json for machine-readable output.
-  set       Toggle always, workday, after_work, or overnight on or off.
-  schedule  Set workday, after_work, or overnight start/end times.
-  restore   Restore always/workday/after-work list files from uploaded backup files and apply them.
+  set       Toggle always, workday, after_work, password_vault, or overnight on or off.
+  schedule  Set workday, after_work, password_vault, or overnight start/end times.
+  restore   Restore always/workday/after-work/password-vault list files from uploaded backup files and apply them.
 ]])
 end
 
@@ -86,23 +88,25 @@ local function parse_restore_args(argv)
     local flag = argv[index]
     local value = argv[index + 1]
 
-    if (flag ~= "--always" and flag ~= "--workday" and flag ~= "--after-work") or value == nil or value == "" then
-      return nil, "Usage: quietwrtctl restore [--always <path>] [--workday <path>] [--after-work <path>]"
+    if (flag ~= "--always" and flag ~= "--workday" and flag ~= "--after-work" and flag ~= "--password-vault") or value == nil or value == "" then
+      return nil, "Usage: quietwrtctl restore [--always <path>] [--workday <path>] [--after-work <path>] [--password-vault <path>]"
     end
 
     if flag == "--always" then
       parsed.always_path = value
     elseif flag == "--workday" then
       parsed.workday_path = value
-    else
+    elseif flag == "--after-work" then
       parsed.after_work_path = value
+    else
+      parsed.password_vault_path = value
     end
 
     index = index + 2
   end
 
-  if not parsed.always_path and not parsed.workday_path and not parsed.after_work_path then
-    return nil, "Usage: quietwrtctl restore [--always <path>] [--workday <path>] [--after-work <path>]"
+  if not parsed.always_path and not parsed.workday_path and not parsed.after_work_path and not parsed.password_vault_path then
+    return nil, "Usage: quietwrtctl restore [--always <path>] [--workday <path>] [--after-work <path>] [--password-vault <path>]"
   end
 
   return parsed, nil
@@ -163,7 +167,7 @@ function M.run_cli(argv, options)
     elseif raw_state == "off" then
       enabled = false
     else
-      io.stderr:write("Usage: quietwrtctl set <always|workday|after_work|overnight> <on|off>\n")
+      io.stderr:write("Usage: quietwrtctl set <always|workday|after_work|password_vault|overnight> <on|off>\n")
       return 1
     end
 
@@ -191,7 +195,7 @@ function M.run_cli(argv, options)
     local end_value = argv[4]
 
     if schedule_name == nil or start_value == nil or end_value == nil then
-      io.stderr:write("Usage: quietwrtctl schedule <workday|after_work|overnight> <start_hhmm> <end_hhmm>\n")
+      io.stderr:write("Usage: quietwrtctl schedule <workday|after_work|password_vault|overnight> <start_hhmm> <end_hhmm>\n")
       return 1
     end
 

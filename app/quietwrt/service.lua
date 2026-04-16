@@ -5,7 +5,7 @@ local util = require("quietwrt.util")
 
 local M = {}
 
-local QUIETWRT_SCHEMA_VERSION = "2"
+local QUIETWRT_SCHEMA_VERSION = "3"
 local MANAGED_FIREWALL_SECTIONS = {
   "quietwrt_dns_int",
   "quietwrt_dot_fwd",
@@ -16,11 +16,13 @@ local HOST_LISTS = {
   { name = "always", key = "always_hosts", path_key = "always_list_path" },
   { name = "workday", key = "workday_hosts", path_key = "workday_list_path" },
   { name = "after_work", key = "after_work_hosts", path_key = "after_work_list_path" },
+  { name = "password_vault", key = "password_vault_hosts", path_key = "password_vault_list_path" },
 }
 
 local SCHEDULES = {
   { name = "workday", start_key = "workday_start", end_key = "workday_end" },
   { name = "after_work", start_key = "after_work_start", end_key = "after_work_end" },
+  { name = "password_vault", start_key = "password_vault_start", end_key = "password_vault_end" },
   { name = "overnight", start_key = "overnight_start", end_key = "overnight_end" },
 }
 
@@ -28,6 +30,7 @@ local TOGGLES = {
   { name = "always", key = "always_enabled" },
   { name = "workday", key = "workday_enabled" },
   { name = "after_work", key = "after_work_enabled" },
+  { name = "password_vault", key = "password_vault_enabled" },
   { name = "overnight", key = "overnight_enabled" },
 }
 
@@ -64,6 +67,7 @@ local function default_paths()
     always_list_path = data_dir .. "/always-blocked.txt",
     workday_list_path = data_dir .. "/workday-blocked.txt",
     after_work_list_path = data_dir .. "/after-work-blocked.txt",
+    password_vault_list_path = data_dir .. "/password-vault-blocked.txt",
     passthrough_rules_path = data_dir .. "/passthrough-rules.txt",
     restart_adguard_command = "/etc/init.d/adguardhome restart >/tmp/quietwrt-adguard-restart.log 2>&1",
     crontab_path = "/etc/crontabs/root",
@@ -206,6 +210,7 @@ local function empty_lists_state()
     always_hosts = {},
     workday_hosts = {},
     after_work_hosts = {},
+    password_vault_hosts = {},
     passthrough_rules = {},
     bootstrapped = false,
   }
@@ -216,6 +221,7 @@ local function clone_lists(lists)
     always_hosts = util.clone_array(lists.always_hosts),
     workday_hosts = util.clone_array(lists.workday_hosts),
     after_work_hosts = util.clone_array(lists.after_work_hosts),
+    password_vault_hosts = util.clone_array(lists.password_vault_hosts),
     passthrough_rules = util.clone_array(lists.passthrough_rules),
   }
 end
@@ -271,6 +277,7 @@ local function persist_lists(env, paths, data)
     always_hosts = data.always_hosts,
     workday_hosts = data.workday_hosts,
     after_work_hosts = data.after_work_hosts,
+    password_vault_hosts = data.password_vault_hosts,
     passthrough_rules = data.passthrough_rules,
   })
 end
@@ -324,14 +331,13 @@ local function load_lists(env, paths, parsed_config, options)
   options = options or {}
 
   local existing = read_lists(env, paths)
-  local have_all_lists = existing.always_content ~= nil
-    and existing.workday_content ~= nil
-    and existing.after_work_content ~= nil
-    and existing.passthrough_content ~= nil
-  local have_no_lists = existing.always_content == nil
-    and existing.workday_content == nil
-    and existing.after_work_content == nil
-    and existing.passthrough_content == nil
+  local have_all_lists = existing.passthrough_content ~= nil
+  local have_no_lists = existing.passthrough_content == nil
+
+  for _, definition in ipairs(HOST_LISTS) do
+    have_all_lists = have_all_lists and existing[definition.name .. "_content"] ~= nil
+    have_no_lists = have_no_lists and existing[definition.name .. "_content"] == nil
+  end
 
   if have_all_lists then
     return parse_existing_lists(existing, paths)
@@ -343,6 +349,7 @@ local function load_lists(env, paths, parsed_config, options)
       always_hosts = always_hosts,
       workday_hosts = {},
       after_work_hosts = {},
+      password_vault_hosts = {},
       passthrough_rules = passthrough_rules,
       bootstrapped = true,
     }
@@ -353,6 +360,28 @@ local function load_lists(env, paths, parsed_config, options)
     end
 
     return bootstrapped, nil
+  end
+
+  if options.allow_bootstrap and not options.installed and not have_no_lists then
+    local repaired = {
+      passthrough_content = existing.passthrough_content or "",
+    }
+
+    for _, definition in ipairs(HOST_LISTS) do
+      repaired[definition.name .. "_content"] = existing[definition.name .. "_content"] or ""
+    end
+
+    local repaired_lists, repaired_error = parse_existing_lists(repaired, paths)
+    if not repaired_lists then
+      return nil, repaired_error
+    end
+
+    local saved, save_error = persist_lists(env, paths, repaired_lists)
+    if not saved then
+      return nil, save_error
+    end
+
+    return repaired_lists, nil
   end
 
   if have_no_lists and not options.installed then
@@ -396,6 +425,7 @@ local function read_settings(env, installed)
       always_enabled = false,
       workday_enabled = false,
       after_work_enabled = false,
+      password_vault_enabled = false,
       overnight_enabled = false,
       schema_version = nil,
     }, nil
@@ -450,15 +480,46 @@ local function default_install_settings()
     always_enabled = true,
     workday_enabled = true,
     after_work_enabled = true,
+    password_vault_enabled = true,
     overnight_enabled = false,
     workday_start = defaults.workday.start,
     workday_end = defaults.workday["end"],
     after_work_start = defaults.after_work.start,
     after_work_end = defaults.after_work["end"],
+    password_vault_start = defaults.password_vault.start,
+    password_vault_end = defaults.password_vault["end"],
     overnight_start = defaults.overnight.start,
     overnight_end = defaults.overnight["end"],
     schema_version = QUIETWRT_SCHEMA_VERSION,
   }
+end
+
+local function seed_install_settings(env)
+  local defaults = default_install_settings()
+  local settings = copy_settings(defaults)
+
+  for _, toggle in ipairs(TOGGLES) do
+    local raw = util.trim(env.capture("uci -q get quietwrt.settings." .. toggle.key) or "")
+    settings[toggle.key] = uci_to_bool(raw, defaults[toggle.key])
+  end
+
+  for _, definition in ipairs(SCHEDULES) do
+    local start_raw = util.trim(env.capture("uci -q get quietwrt.settings." .. definition.start_key) or "")
+    local end_raw = util.trim(env.capture("uci -q get quietwrt.settings." .. definition.end_key) or "")
+    local start_value = schedule.normalize_hhmm(start_raw)
+    local end_value = schedule.normalize_hhmm(end_raw)
+
+    if start_value ~= nil and end_value ~= nil then
+      local window = schedule.build_window(definition.name, start_value, end_value)
+      if window ~= nil then
+        settings[definition.start_key] = window.start
+        settings[definition.end_key] = window["end"]
+      end
+    end
+  end
+
+  settings.schema_version = QUIETWRT_SCHEMA_VERSION
+  return settings
 end
 
 local function write_settings(env, paths, settings, schema_version)
@@ -524,15 +585,18 @@ local function build_runtime_activity(settings, now_table)
 
   local workday_window_active = schedule.window_contains(windows.workday, now_table)
   local after_work_window_active = schedule.window_contains(windows.after_work, now_table)
+  local password_vault_window_active = schedule.window_contains(windows.password_vault, now_table)
   local overnight_window_active = schedule.window_contains(windows.overnight, now_table)
 
   return {
     schedule = windows,
     workday_window_active = workday_window_active,
     after_work_window_active = after_work_window_active,
+    password_vault_window_active = password_vault_window_active,
     overnight_window_active = overnight_window_active,
     workday_active = settings.workday_enabled and workday_window_active,
     after_work_active = settings.after_work_enabled and after_work_window_active,
+    password_vault_active = settings.password_vault_enabled and password_vault_window_active,
     overnight_active = settings.overnight_enabled and overnight_window_active,
   }, nil
 end
@@ -556,6 +620,12 @@ local function build_active_hosts(lists, settings, activity)
     end
   end
 
+  if activity.password_vault_active then
+    for _, host in ipairs(lists.password_vault_hosts or {}) do
+      table.insert(scheduled_hosts, host)
+    end
+  end
+
   return always_hosts, util.sorted_unique(scheduled_hosts)
 end
 
@@ -573,6 +643,7 @@ local function serialize_schedule_windows(windows)
   return {
     workday = serialize_window(windows.workday),
     after_work = serialize_window(windows.after_work),
+    password_vault = serialize_window(windows.password_vault),
     overnight = serialize_window(windows.overnight),
   }
 end
@@ -599,14 +670,17 @@ local function build_view_state(parsed_config, lists, settings, activity, harden
     always_hosts = lists.always_hosts,
     workday_hosts = lists.workday_hosts,
     after_work_hosts = lists.after_work_hosts,
+    password_vault_hosts = lists.password_vault_hosts,
     passthrough_rules = lists.passthrough_rules,
     active_rules = active_rules,
     active_rule_count = #active_rules,
     workday_window_active = activity.workday_window_active,
     after_work_window_active = activity.after_work_window_active,
+    password_vault_window_active = activity.password_vault_window_active,
     overnight_window_active = activity.overnight_window_active,
     workday_active = activity.workday_active,
     after_work_active = activity.after_work_active,
+    password_vault_active = activity.password_vault_active,
     overnight_active = activity.overnight_active,
     hardening = hardening_state,
     warnings = {},
@@ -888,6 +962,7 @@ local function remove_bootstrapped_lists(env, paths)
     paths.always_list_path,
     paths.workday_list_path,
     paths.after_work_list_path,
+    paths.password_vault_list_path,
     paths.passthrough_rules_path,
   }) do
     env.remove_file(path)
@@ -1034,20 +1109,24 @@ local function uninstalled_snapshot(now_table)
       always_enabled = false,
       workday_enabled = false,
       after_work_enabled = false,
+      password_vault_enabled = false,
       overnight_enabled = false,
     },
     schedule = {},
     always_hosts = {},
     workday_hosts = {},
     after_work_hosts = {},
+    password_vault_hosts = {},
     passthrough_rules = {},
     active_rules = {},
     active_rule_count = 0,
     workday_window_active = false,
     after_work_window_active = false,
+    password_vault_window_active = false,
     overnight_window_active = false,
     workday_active = false,
     after_work_active = false,
+    password_vault_active = false,
     overnight_active = false,
     hardening = {
       dns_intercept = false,
@@ -1141,6 +1220,14 @@ local function render_status_text(snapshot)
         .. (schedule_snapshot.after_work.overnight and " (overnight)" or ""))
       or "unknown"
     ),
+    "Password vault enabled: " .. (snapshot.settings.password_vault_enabled and "yes" or "no"),
+    "Password vault active now: " .. (snapshot.password_vault_active and "yes" or "no"),
+    "Password vault window: " .. (
+      schedule_snapshot.password_vault and (schedule_snapshot.password_vault.display_start .. " to "
+        .. schedule_snapshot.password_vault.display_end
+        .. (schedule_snapshot.password_vault.overnight and " (overnight)" or ""))
+      or "unknown"
+    ),
     "Overnight enabled: " .. (snapshot.settings.overnight_enabled and "yes" or "no"),
     "Overnight active now: " .. (snapshot.overnight_active and "yes" or "no"),
     "Overnight window: " .. (
@@ -1152,6 +1239,7 @@ local function render_status_text(snapshot)
     "Always blocked: " .. tostring(#snapshot.always_hosts),
     "Workday blocked: " .. tostring(#snapshot.workday_hosts),
     "After work blocked: " .. tostring(#snapshot.after_work_hosts),
+    "Password vault blocked: " .. tostring(#snapshot.password_vault_hosts),
     "Active rules: " .. tostring(snapshot.active_rule_count),
     "DNS intercept hardening: " .. (snapshot.hardening.dns_intercept and "yes" or "no"),
     "DoT block hardening: " .. (snapshot.hardening.dot_block and "yes" or "no"),
@@ -1174,17 +1262,21 @@ local function render_status_json(snapshot)
     always_enabled = snapshot.settings.always_enabled,
     workday_enabled = snapshot.settings.workday_enabled,
     after_work_enabled = snapshot.settings.after_work_enabled,
+    password_vault_enabled = snapshot.settings.password_vault_enabled,
     overnight_enabled = snapshot.settings.overnight_enabled,
     workday_window_active = snapshot.workday_window_active,
     after_work_window_active = snapshot.after_work_window_active,
+    password_vault_window_active = snapshot.password_vault_window_active,
     overnight_window_active = snapshot.overnight_window_active,
     workday_active = snapshot.workday_active,
     after_work_active = snapshot.after_work_active,
+    password_vault_active = snapshot.password_vault_active,
     overnight_active = snapshot.overnight_active,
     schedule = snapshot.schedule,
     always_count = #snapshot.always_hosts,
     workday_count = #snapshot.workday_hosts,
     after_work_count = #snapshot.after_work_hosts,
+    password_vault_count = #snapshot.password_vault_hosts,
     active_rule_count = snapshot.active_rule_count,
     hardening = snapshot.hardening,
     warnings = snapshot.warnings,
@@ -1458,6 +1550,7 @@ function M.add_entry(context, destination, raw_value)
     {
       workday = lists.workday_hosts,
       after_work = lists.after_work_hosts,
+      password_vault = lists.password_vault_hosts,
     },
     destination,
     raw_value
@@ -1471,6 +1564,7 @@ function M.add_entry(context, destination, raw_value)
     always_hosts = result.always_hosts,
     workday_hosts = result.workday_hosts,
     after_work_hosts = result.after_work_hosts,
+    password_vault_hosts = result.password_vault_hosts,
     passthrough_rules = lists.passthrough_rules,
   })
   if not saved then
@@ -1528,7 +1622,7 @@ function M.install(context)
       return false, settings_error
     end
   else
-    staged_settings = default_install_settings()
+    staged_settings = seed_install_settings(context.env)
   end
 
   local original_settings = nil
@@ -1598,6 +1692,8 @@ function M.set_toggle(context, toggle_name, enabled)
     settings.workday_enabled = enabled
   elseif toggle_name == "after_work" then
     settings.after_work_enabled = enabled
+  elseif toggle_name == "password_vault" then
+    settings.password_vault_enabled = enabled
   elseif toggle_name == "overnight" then
     settings.overnight_enabled = enabled
   else
@@ -1624,6 +1720,9 @@ function M.set_schedule(context, schedule_name, start_value, end_value)
   elseif schedule_name == "after_work" then
     settings.after_work_start = updated_window.start
     settings.after_work_end = updated_window["end"]
+  elseif schedule_name == "password_vault" then
+    settings.password_vault_start = updated_window.start
+    settings.password_vault_end = updated_window["end"]
   elseif schedule_name == "overnight" then
     settings.overnight_start = updated_window.start
     settings.overnight_end = updated_window["end"]
@@ -1702,6 +1801,24 @@ function M.restore_lists(context, restore_paths)
     end
 
     replacements.after_work_hosts = after_work_hosts
+    selected_count = selected_count + 1
+  end
+
+  if restore_paths.password_vault_path then
+    local password_vault_content = context.env.read_file(restore_paths.password_vault_path)
+    if password_vault_content == nil then
+      return false, "Could not read " .. restore_paths.password_vault_path .. "."
+    end
+
+    local password_vault_hosts, password_vault_error = rules.load_hosts_file(
+      password_vault_content,
+      restore_paths.password_vault_path
+    )
+    if not password_vault_hosts then
+      return false, password_vault_error
+    end
+
+    replacements.password_vault_hosts = password_vault_hosts
     selected_count = selected_count + 1
   end
 

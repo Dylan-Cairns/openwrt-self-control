@@ -47,6 +47,18 @@ function TestRules:test_after_work_add_moves_from_workday()
   lu.assertStrContains(result.message, "After work blocked")
 end
 
+function TestRules:test_password_vault_add_moves_from_after_work()
+  local result = rules.apply_addition({}, {
+    workday = {},
+    after_work = { "example.com" },
+    password_vault = {},
+  }, "password_vault", "example.com")
+  lu.assertTrue(result.ok)
+  lu.assertEquals(result.after_work_hosts, {})
+  lu.assertEquals(result.password_vault_hosts, { "example.com" })
+  lu.assertStrContains(result.message, "Password vault blocked")
+end
+
 function TestRules:test_compile_active_rules_unions_always_and_scheduled_lists()
   local compiled = rules.compile_active_rules(
     { "always.com" },

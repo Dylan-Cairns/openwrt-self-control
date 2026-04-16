@@ -6,11 +6,13 @@ local DESTINATION_LABELS = {
   always = "Always blocked",
   workday = "Workday blocked",
   after_work = "After work blocked",
+  password_vault = "Password vault blocked",
 }
 
 local SCHEDULED_DESTINATIONS = {
   "workday",
   "after_work",
+  "password_vault",
 }
 
 local function format_source_line(source_name, line_number)
@@ -94,6 +96,7 @@ local function build_result(ok, kind, message, host, always_hosts, scheduled_lis
     always_hosts = always_hosts,
     workday_hosts = scheduled_lists.workday,
     after_work_hosts = scheduled_lists.after_work,
+    password_vault_hosts = scheduled_lists.password_vault,
   }
 end
 
@@ -224,7 +227,7 @@ function M.load_rules_file(content, source_name)
       local kind = M.classify_rule(text)
       if kind == "block" then
         return nil, format_source_line(source_name, line_number)
-          .. ": Block rules belong in the always/workday/after work lists, not passthrough rules."
+          .. ": Block rules belong in the always/workday/after work/password vault lists, not passthrough rules."
       end
 
       table.insert(parsed, text)
@@ -318,7 +321,7 @@ function M.apply_addition(always_hosts, scheduled_lists, destination, raw_value)
     return {
       ok = false,
       kind = "error",
-      message = "Choose Always blocked, Workday blocked, or After work blocked.",
+      message = "Choose Always blocked, Workday blocked, After work blocked, or Password vault blocked.",
     }
   end
 
