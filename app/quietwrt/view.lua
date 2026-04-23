@@ -9,9 +9,12 @@ body{margin:0;color:var(--text);font-family:"Trebuchet MS","Segoe UI",sans-serif
 .shell{max-width:1180px;margin:0 auto;padding:2rem 1rem 3rem;}
 h1{margin:0;font-size:2rem;line-height:1.1;}
 p{margin:0;line-height:1.6;color:var(--muted);}
+.page-heading{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;}
 .panel{margin-top:1rem;padding:1.15rem 1.2rem;border-radius:18px;border:1px solid var(--edge);background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0)),var(--panel);box-shadow:var(--shadow);}
 .section-title{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:0.35rem;}
 .section-title h2,.section-title h3{margin:0;font-size:1.08rem;}
+.download-link{display:inline-flex;align-items:center;justify-content:center;min-height:2.35rem;padding:0.55rem 0.85rem;border-radius:12px;border:1px solid rgba(139,233,253,0.36);background:rgba(139,233,253,0.12);color:var(--cyan);font-weight:800;text-decoration:none;}
+.download-link:hover{background:rgba(139,233,253,0.18);}
 .banner{padding:0.95rem 1rem;border-radius:14px;margin-top:1rem;font-weight:700;}
 .banner.success{background:rgba(80,250,123,0.12);border:1px solid rgba(80,250,123,0.28);}
 .banner.warning{background:rgba(255,184,108,0.12);border:1px solid rgba(255,184,108,0.28);}
@@ -333,6 +336,31 @@ function M.send_redirect(script_name, kind, message)
   write("Cache-Control: no-store\r\n\r\n")
 end
 
+local function safe_header_filename(filename)
+  local safe = tostring(filename or "download.bin"):gsub('[\r\n"]', "_")
+  return safe
+end
+
+function M.send_download(content_type, filename, content)
+  content = tostring(content or "")
+  write("Content-Type: ", content_type or "application/octet-stream", "\r\n")
+  write("Content-Disposition: attachment; filename=\"", safe_header_filename(filename), "\"\r\n")
+  write("Content-Length: ", tostring(#content), "\r\n")
+  write("Cache-Control: no-store\r\n\r\n")
+  write(content)
+end
+
+function M.send_error_page(status_code, title, message)
+  M.send_html(status_code)
+  write(
+    "<!doctype html><title>",
+    util.html_escape(title or "Error"),
+    "</title><p>",
+    util.html_escape(message or "The request could not be completed."),
+    "</p>"
+  )
+end
+
 function M.render_page(script_name, state)
   local banner = state.banner
   local banner_kind = banner_class(banner and banner.kind)
@@ -387,7 +415,9 @@ function M.render_page(script_name, state)
 </head>
 <body>
 <div class="shell">
-<h1>QuietWrt Blocklists</h1>
+<div class="page-heading"><h1>QuietWrt Blocklists</h1><a class="download-link" href="]],
+    util.html_escape(script_name .. "?download=zip"),
+    [[">Download ZIP</a></div>
 <section class="panel">
 <div class="status-list">
 ]],

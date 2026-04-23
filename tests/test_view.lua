@@ -94,6 +94,8 @@ function TestView:test_render_page_uses_dracula_status_rows_and_non_editable_rul
   end)
 
   lu.assertStrContains(html, "--bg:#282a36")
+  lu.assertStrContains(html, 'class="download-link" href="/cgi-bin/quietwrt?download=zip"')
+  lu.assertStrContains(html, "Download ZIP")
   lu.assertStrContains(html, 'form method="post" action="/cgi-bin/quietwrt"')
   lu.assertStrContains(html, "Router time")
   lu.assertStrContains(html, '<span class="status-text">19:42</span>')

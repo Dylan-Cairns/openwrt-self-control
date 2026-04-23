@@ -9,10 +9,10 @@ M.MANAGED_FIREWALL_SECTIONS = {
 }
 
 M.HOST_LISTS = {
-  { name = "always", key = "always_hosts", path_key = "always_list_path" },
-  { name = "workday", key = "workday_hosts", path_key = "workday_list_path" },
-  { name = "after_work", key = "after_work_hosts", path_key = "after_work_list_path" },
-  { name = "password_vault", key = "password_vault_hosts", path_key = "password_vault_list_path" },
+  { name = "always", key = "always_hosts", path_key = "always_list_path", file_name = "always-blocked.txt" },
+  { name = "workday", key = "workday_hosts", path_key = "workday_list_path", file_name = "workday-blocked.txt" },
+  { name = "after_work", key = "after_work_hosts", path_key = "after_work_list_path", file_name = "after-work-blocked.txt" },
+  { name = "password_vault", key = "password_vault_hosts", path_key = "password_vault_list_path", file_name = "password-vault-blocked.txt" },
 }
 
 M.SCHEDULES = {

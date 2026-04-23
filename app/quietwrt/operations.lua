@@ -1,4 +1,5 @@
 local apply_engine = require("quietwrt.apply_engine")
+local archive_ops = require("quietwrt.archive_ops")
 local install_ops = require("quietwrt.install_ops")
 local list_ops = require("quietwrt.list_ops")
 local settings_ops = require("quietwrt.settings_ops")
@@ -18,6 +19,10 @@ end
 
 function M.add_entry(context, destination, raw_value)
   return list_ops.add_entry(context, destination, raw_value)
+end
+
+function M.download_blocklists_archive(context, format)
+  return archive_ops.download_blocklists_archive(context, format)
 end
 
 function M.install(context)

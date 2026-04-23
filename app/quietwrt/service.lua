@@ -19,6 +19,10 @@ function M.add_entry(context, destination, raw_value)
   return operations.add_entry(context, destination, raw_value)
 end
 
+function M.download_blocklists_archive(context, format)
+  return operations.download_blocklists_archive(context, format)
+end
+
 function M.install(context)
   return operations.install(context)
 end

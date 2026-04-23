@@ -32,6 +32,22 @@ function M.run_cgi(options)
   end
 
   local query = util.parse_form_encoded(os.getenv("QUERY_STRING") or "")
+  if query.download ~= nil then
+    if query.download ~= "zip" then
+      view.send_error_page("400 Bad Request", "Download Unavailable", "Only ZIP downloads are supported.")
+      return
+    end
+
+    local ok, download = service.download_blocklists_archive(context, query.download)
+    if not ok then
+      view.send_error_page("409 Conflict", "Download Unavailable", download)
+      return
+    end
+
+    view.send_download(download.content_type, download.filename, download.content)
+    return
+  end
+
   local state, load_error = service.load_view_state(context)
   local protection_enabled = nil
   local enforcement_ready = nil

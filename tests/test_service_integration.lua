@@ -554,3 +554,45 @@ function TestServiceIntegration:test_restore_lists_updates_only_the_provided_bac
   lu.assertStrContains(config, "||old.example^")
   fixture.cleanup()
 end
+
+function TestServiceIntegration:test_download_blocklists_archive_exports_current_files_as_zip()
+  local fixture = installed_fixture()
+
+  helper.write_file(fixture.paths.always_list_path, "always.example\n")
+  helper.write_file(fixture.paths.workday_list_path, "work.example\n")
+  helper.write_file(fixture.paths.after_work_list_path, "after.example\n")
+  helper.write_file(fixture.paths.password_vault_list_path, "vault.example\n")
+
+  local context = service.new_context({
+    env = fixture.env,
+    paths = fixture.paths,
+  })
+
+  local ok, result = service.download_blocklists_archive(context, "zip")
+  lu.assertTrue(ok)
+  lu.assertEquals(result.content_type, "application/zip")
+  lu.assertEquals(result.filename, "quietwrt-blocklists.zip")
+  lu.assertStrContains(result.content, "always-blocked.txtalways.example\n")
+  lu.assertStrContains(result.content, "workday-blocked.txtwork.example\n")
+  lu.assertStrContains(result.content, "after-work-blocked.txtafter.example\n")
+  lu.assertStrContains(result.content, "password-vault-blocked.txtvault.example\n")
+  fixture.cleanup()
+end
+
+function TestServiceIntegration:test_download_blocklists_archive_reports_missing_source_file()
+  local fixture = installed_fixture()
+
+  helper.write_file(fixture.paths.always_list_path, "always.example\n")
+  helper.write_file(fixture.paths.workday_list_path, "work.example\n")
+  helper.write_file(fixture.paths.password_vault_list_path, "vault.example\n")
+
+  local context = service.new_context({
+    env = fixture.env,
+    paths = fixture.paths,
+  })
+
+  local ok, err = service.download_blocklists_archive(context, "zip")
+  lu.assertFalse(ok)
+  lu.assertStrContains(err, "after-work-blocked.txt")
+  fixture.cleanup()
+end
