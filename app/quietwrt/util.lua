@@ -42,6 +42,89 @@ function M.parse_form_encoded(value)
   return result
 end
 
+local function parse_multipart_headers(raw_headers)
+  local headers = {}
+  for line in tostring(raw_headers or ""):gmatch("([^\r\n]+)") do
+    local name, value = line:match("^([^:]+):%s*(.*)$")
+    if name then
+      headers[name:lower()] = value
+    end
+  end
+  return headers
+end
+
+local function parse_content_disposition(value)
+  local result = {}
+  for key, quoted in tostring(value or ""):gmatch(';%s*([%w_-]+)="([^"]*)"') do
+    result[key] = quoted
+  end
+  return result
+end
+
+function M.parse_multipart_form_data(body, content_type)
+  body = tostring(body or "")
+  local boundary = tostring(content_type or ""):match('boundary="?([^";]+)"?')
+  if not boundary or boundary == "" then
+    return nil, "Multipart request is missing a boundary."
+  end
+
+  local marker = "--" .. boundary
+  local result = {}
+  local position = 1
+
+  while true do
+    local marker_start = body:find(marker, position, true)
+    if not marker_start then
+      break
+    end
+
+    local part_start = marker_start + #marker
+    if body:sub(part_start, part_start + 1) == "--" then
+      break
+    end
+
+    if body:sub(part_start, part_start + 1) == "\r\n" then
+      part_start = part_start + 2
+    elseif body:sub(part_start, part_start) == "\n" then
+      part_start = part_start + 1
+    end
+
+    local header_end = body:find("\r\n\r\n", part_start, true)
+    local separator_length = 4
+    if not header_end then
+      header_end = body:find("\n\n", part_start, true)
+      separator_length = 2
+    end
+    if not header_end then
+      return nil, "Multipart request contains a malformed part."
+    end
+
+    local next_marker = body:find("\r\n" .. marker, header_end + separator_length, true)
+    local trim_length = 2
+    if not next_marker then
+      next_marker = body:find("\n" .. marker, header_end + separator_length, true)
+      trim_length = 1
+    end
+    if not next_marker then
+      return nil, "Multipart request is truncated."
+    end
+
+    local headers = parse_multipart_headers(body:sub(part_start, header_end - 1))
+    local disposition = parse_content_disposition(headers["content-disposition"])
+    if disposition.name and disposition.name ~= "" then
+      result[disposition.name] = {
+        filename = disposition.filename,
+        content_type = headers["content-type"],
+        content = body:sub(header_end + separator_length, next_marker - 1),
+      }
+    end
+
+    position = next_marker + trim_length
+  end
+
+  return result, nil
+end
+
 function M.split_lines(content)
   local normalized = tostring(content or ""):gsub("\r\n", "\n")
   if normalized == "" then

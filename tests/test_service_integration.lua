@@ -1,5 +1,6 @@
 local helper = require("test_helper")
 local lu = require("luaunit")
+local archive = require("quietwrt.archive")
 local service = require("quietwrt.service")
 
 TestServiceIntegration = {}
@@ -588,6 +589,91 @@ function TestServiceIntegration:test_restore_lists_updates_only_the_provided_bac
   local config = helper.read_file(fixture.paths.config_path)
   lu.assertStrContains(config, "||new-after.example^")
   lu.assertStrContains(config, "||old.example^")
+  fixture.cleanup()
+end
+
+function TestServiceIntegration:test_import_blocklists_archive_merges_without_removing_current_entries()
+  local fixture = installed_fixture({
+    now = function()
+      return { hour = 10, min = 0 }
+    end,
+  })
+
+  helper.write_config(fixture.paths.config_path, {})
+  helper.write_file(fixture.paths.always_list_path, "current.example\n")
+  helper.write_file(fixture.paths.workday_list_path, "keep-work.example\n")
+  helper.write_file(fixture.paths.after_work_list_path, "after.example\n")
+  helper.write_file(fixture.paths.password_vault_list_path, "vault.example\n")
+  helper.write_file(fixture.paths.passthrough_rules_path, "")
+
+  local zip = assert(archive.zip({
+    {
+      name = "always-blocked.txt",
+      content = "current.example\nnew-always.example\n",
+    },
+    {
+      name = "workday-blocked.txt",
+      content = "new-work.example\n",
+    },
+    {
+      name = "after-work-blocked.txt",
+      content = "",
+    },
+    {
+      name = "password-vault-blocked.txt",
+      content = "vault.example\nnew-vault.example\n",
+    },
+  }))
+
+  local context = service.new_context({
+    env = fixture.env,
+    paths = fixture.paths,
+  })
+
+  local ok, result = service.import_blocklists_archive(context, zip)
+
+  lu.assertTrue(ok)
+  lu.assertEquals(result.added_count, 3)
+  lu.assertEquals(result.duplicate_count, 2)
+  lu.assertEquals(helper.read_file(fixture.paths.always_list_path), "current.example\nnew-always.example\n")
+  lu.assertEquals(helper.read_file(fixture.paths.workday_list_path), "keep-work.example\nnew-work.example\n")
+  lu.assertEquals(helper.read_file(fixture.paths.after_work_list_path), "after.example\n")
+  lu.assertEquals(helper.read_file(fixture.paths.password_vault_list_path), "new-vault.example\nvault.example\n")
+
+  local config = helper.read_file(fixture.paths.config_path)
+  lu.assertStrContains(config, "||current.example^")
+  lu.assertStrContains(config, "||new-always.example^")
+  lu.assertStrContains(config, "||keep-work.example^")
+  fixture.cleanup()
+end
+
+function TestServiceIntegration:test_import_blocklists_archive_rejects_unexpected_files()
+  local fixture = installed_fixture()
+
+  helper.write_config(fixture.paths.config_path, {})
+  helper.write_file(fixture.paths.always_list_path, "")
+  helper.write_file(fixture.paths.workday_list_path, "")
+  helper.write_file(fixture.paths.after_work_list_path, "")
+  helper.write_file(fixture.paths.password_vault_list_path, "")
+  helper.write_file(fixture.paths.passthrough_rules_path, "")
+
+  local zip = assert(archive.zip({
+    {
+      name = "unknown.txt",
+      content = "alpha.example\n",
+    },
+  }))
+
+  local context = service.new_context({
+    env = fixture.env,
+    paths = fixture.paths,
+  })
+
+  local ok, err = service.import_blocklists_archive(context, zip)
+
+  lu.assertFalse(ok)
+  lu.assertStrContains(err, "unexpected file")
+  lu.assertEquals(helper.read_file(fixture.paths.always_list_path), "")
   fixture.cleanup()
 end
 

@@ -74,3 +74,37 @@ function TestArchive:test_zip_rejects_path_like_filenames()
   lu.assertNil(zip)
   lu.assertStrContains(err, "path separators")
 end
+
+function TestArchive:test_unzip_stored_reads_valid_export_entries()
+  local zip = assert(archive.zip({
+    {
+      name = "always-blocked.txt",
+      content = "alpha.example\n",
+    },
+    {
+      name = "workday-blocked.txt",
+      content = "work.example\n",
+    },
+  }))
+
+  local entries, err = archive.unzip_stored(zip)
+
+  lu.assertNil(err)
+  lu.assertEquals(entries["always-blocked.txt"], "alpha.example\n")
+  lu.assertEquals(entries["workday-blocked.txt"], "work.example\n")
+end
+
+function TestArchive:test_unzip_stored_rejects_unsupported_compression()
+  local zip = assert(archive.zip({
+    {
+      name = "always-blocked.txt",
+      content = "alpha.example\n",
+    },
+  }))
+  zip = zip:sub(1, 8) .. string.char(8, 0) .. zip:sub(11)
+
+  local entries, err = archive.unzip_stored(zip)
+
+  lu.assertNil(entries)
+  lu.assertStrContains(err, "unsupported compression")
+end

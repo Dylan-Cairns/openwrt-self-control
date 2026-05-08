@@ -12,6 +12,14 @@ local function read_stdin(length)
   return io.read(length) or ""
 end
 
+local function import_message(result)
+  return "Imported "
+    .. tostring(result.added_count or 0)
+    .. " new domains from ZIP. Active rules: "
+    .. tostring(result.active_rule_count or 0)
+    .. "."
+end
+
 function M.run_cgi(options)
   local context = service.new_context(options)
   local script_name = os.getenv("SCRIPT_NAME") or "/cgi-bin/quietwrt"
@@ -19,7 +27,43 @@ function M.run_cgi(options)
 
   if method == "POST" then
     local length = tonumber(os.getenv("CONTENT_LENGTH") or "0") or 0
-    local form = util.parse_form_encoded(read_stdin(length))
+    local content_type = os.getenv("CONTENT_TYPE") or ""
+    local body = read_stdin(length)
+
+    if content_type:find("multipart/form-data", 1, true) then
+      if length > 2097152 then
+        view.send_redirect(script_name, "error", "Uploaded ZIP is too large.")
+        return
+      end
+
+      local form, form_error = util.parse_multipart_form_data(body, content_type)
+      if not form then
+        view.send_redirect(script_name, "error", form_error)
+        return
+      end
+
+      if form.action and form.action.content == "import_zip" then
+        local upload = form.blocklists_zip
+        if not upload or upload.content == "" then
+          view.send_redirect(script_name, "error", "Choose a QuietWrt ZIP file to import.")
+          return
+        end
+
+        local ok, result = service.import_blocklists_archive(context, upload.content)
+        if not ok then
+          view.send_redirect(script_name, "error", result)
+          return
+        end
+
+        view.send_redirect(script_name, "success", import_message(result))
+        return
+      end
+
+      view.send_redirect(script_name, "error", "Unsupported upload action.")
+      return
+    end
+
+    local form = util.parse_form_encoded(body)
     local result = service.add_entry(context, form.list_kind or "always", form.entry)
     view.send_redirect(script_name, result.kind or "info", result.message or "")
     return

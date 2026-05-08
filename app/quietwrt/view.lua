@@ -40,8 +40,8 @@ p{margin:0;line-height:1.6;color:var(--muted);}
 .action-row .button-wrap{display:flex;}
 .field-help{font-size:0.92rem;color:var(--muted);margin-bottom:0.7rem;}
 label{display:block;font-weight:700;margin-bottom:0.45rem;}
-input[type=text],select{width:100%;padding:0.85rem 0.95rem;border:1px solid var(--edge);border-radius:12px;font-size:1rem;color:var(--text);background:var(--field);outline:none;transition:border-color 0.15s ease,box-shadow 0.15s ease;}
-input[type=text]:focus,select:focus{border-color:rgba(139,233,253,0.54);box-shadow:0 0 0 3px rgba(139,233,253,0.16);}
+input[type=text],input[type=file],select{width:100%;padding:0.85rem 0.95rem;border:1px solid var(--edge);border-radius:12px;font-size:1rem;color:var(--text);background:var(--field);outline:none;transition:border-color 0.15s ease,box-shadow 0.15s ease;}
+input[type=text]:focus,input[type=file]:focus,select:focus{border-color:rgba(139,233,253,0.54);box-shadow:0 0 0 3px rgba(139,233,253,0.16);}
 input[type=text]::placeholder{color:#8f93b8;}
 button{margin-top:0.3rem;background:linear-gradient(180deg,var(--purple),#a77df7);color:#fff;border:none;border-radius:12px;padding:0.85rem 1.1rem;font-size:1rem;font-weight:800;cursor:pointer;box-shadow:0 12px 28px rgba(189,147,249,0.24);white-space:nowrap;}
 button:hover{filter:brightness(1.04);}
@@ -283,6 +283,33 @@ local function render_add_entry_form(script_name)
   return table.concat(parts)
 end
 
+local function render_import_form(script_name)
+  local parts = {}
+
+  append(
+    parts,
+    [[<section class="panel form-panel field-stack">
+<div class="section-title"><h2>Import a QuietWrt ZIP</h2></div>
+<p class="field-help">Adds domains from a previously downloaded ZIP to the matching blocklists. Current entries are kept.</p>
+<form method="post" action="]],
+    util.html_escape(script_name),
+    [[" enctype="multipart/form-data">
+<input type="hidden" name="action" value="import_zip">
+<div class="action-row">
+<div>
+<label for="blocklists_zip">ZIP file</label>
+<input id="blocklists_zip" name="blocklists_zip" type="file" accept=".zip,application/zip">
+</div>
+<div class="button-wrap"><button type="submit">Import ZIP</button></div>
+</div>
+</form>
+</section>
+]]
+  )
+
+  return table.concat(parts)
+end
+
 local function render_list_panel(option, items)
   local safe_items = items or {}
   local parts = {}
@@ -432,6 +459,7 @@ function M.render_page(script_name, state)
 ]],
     render_banner(state.load_error, banner, banner_kind),
     render_add_entry_form(script_name),
+    render_import_form(script_name),
     [[<section class="grid">
 ]],
     render_blocklist_panels(lists),

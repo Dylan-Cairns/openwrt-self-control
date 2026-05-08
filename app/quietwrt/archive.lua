@@ -76,6 +76,20 @@ local function le32(value)
   )
 end
 
+local function read_u16(content, offset)
+  local first = content:byte(offset) or 0
+  local second = content:byte(offset + 1) or 0
+  return first + (second * 256)
+end
+
+local function read_u32(content, offset)
+  local first = content:byte(offset) or 0
+  local second = content:byte(offset + 1) or 0
+  local third = content:byte(offset + 2) or 0
+  local fourth = content:byte(offset + 3) or 0
+  return first + (second * 256) + (third * 65536) + (fourth * 16777216)
+end
+
 local function validate_file(file)
   if type(file) ~= "table" then
     return nil, "Archive file entries must be tables."
@@ -185,6 +199,83 @@ function M.zip(files)
   table.insert(local_parts, central_directory)
   table.insert(local_parts, end_record)
   return table.concat(local_parts), nil
+end
+
+function M.unzip_stored(content)
+  content = tostring(content or "")
+  if #content == 0 then
+    return nil, "ZIP archive is empty."
+  end
+
+  local entries = {}
+  local offset = 1
+  local file_count = 0
+
+  while offset <= #content do
+    local signature = content:sub(offset, offset + 3)
+    if signature == "PK\001\002" or signature == "PK\005\006" then
+      break
+    end
+
+    if signature ~= "PK\003\004" then
+      return nil, "ZIP archive contains an invalid local file header."
+    end
+
+    local flags = read_u16(content, offset + 6)
+    local method = read_u16(content, offset + 8)
+    local expected_crc32 = read_u32(content, offset + 14)
+    local compressed_size = read_u32(content, offset + 18)
+    local uncompressed_size = read_u32(content, offset + 22)
+    local name_length = read_u16(content, offset + 26)
+    local extra_length = read_u16(content, offset + 28)
+    local name_start = offset + 30
+    local name_end = name_start + name_length - 1
+    local data_start = name_end + extra_length + 1
+    local data_end = data_start + compressed_size - 1
+
+    if flags ~= 0 then
+      return nil, "ZIP archive uses unsupported file flags."
+    end
+
+    if method ~= 0 then
+      return nil, "ZIP archive uses unsupported compression."
+    end
+
+    if compressed_size ~= uncompressed_size then
+      return nil, "ZIP archive contains a compressed-size mismatch."
+    end
+
+    if name_length == 0 or data_end > #content then
+      return nil, "ZIP archive is truncated."
+    end
+
+    local name = content:sub(name_start, name_end)
+    local file, validate_error = validate_file({
+      name = name,
+      content = content:sub(data_start, data_end),
+    })
+    if not file then
+      return nil, validate_error
+    end
+
+    if file.crc32 ~= expected_crc32 then
+      return nil, "ZIP archive CRC mismatch for " .. name .. "."
+    end
+
+    if entries[name] ~= nil then
+      return nil, "ZIP archive contains duplicate file: " .. name
+    end
+
+    entries[name] = file.content
+    file_count = file_count + 1
+    offset = data_end + 1
+  end
+
+  if file_count == 0 then
+    return nil, "ZIP archive contains no files."
+  end
+
+  return entries, nil
 end
 
 return M

@@ -41,6 +41,10 @@ function M.restore_lists(context, restore_paths)
   return list_ops.restore_lists(context, restore_paths)
 end
 
+function M.import_blocklists_archive(context, content)
+  return list_ops.import_blocklists_archive(context, content)
+end
+
 function M.status(context, options)
   return status_ops.status(context, options)
 end
