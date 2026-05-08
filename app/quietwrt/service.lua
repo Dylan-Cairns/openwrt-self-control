@@ -31,6 +31,10 @@ function M.set_toggle(context, toggle_name, enabled)
   return operations.set_toggle(context, toggle_name, enabled)
 end
 
+function M.enable_toggle(context, toggle_name)
+  return operations.enable_toggle(context, toggle_name)
+end
+
 function M.set_schedule(context, schedule_name, start_value, end_value)
   return operations.set_schedule(context, schedule_name, start_value, end_value)
 end

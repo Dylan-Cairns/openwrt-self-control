@@ -26,6 +26,7 @@ p{margin:0;line-height:1.6;color:var(--muted);}
 .status-top{display:flex;justify-content:space-between;gap:1rem;align-items:center;flex-wrap:wrap;}
 .status-label{font-weight:700;color:var(--text);}
 .status-values{display:flex;gap:0.55rem;flex-wrap:wrap;align-items:center;}
+.status-action{display:inline-flex;margin:0;}
 .status-text{font-size:1rem;font-weight:700;color:var(--cyan);}
 .status-detail{margin-top:0.45rem;color:var(--muted);}
 .chip{display:inline-flex;align-items:center;justify-content:center;min-height:2.05rem;padding:0.35rem 0.8rem;border-radius:999px;border:1px solid var(--edge-strong);background:rgba(98,114,164,0.12);font-size:0.92rem;font-weight:700;}
@@ -45,6 +46,7 @@ input[type=text]:focus,input[type=file]:focus,select:focus{border-color:rgba(139
 input[type=text]::placeholder{color:#8f93b8;}
 button{margin-top:0.3rem;background:linear-gradient(180deg,var(--purple),#a77df7);color:#fff;border:none;border-radius:12px;padding:0.85rem 1.1rem;font-size:1rem;font-weight:800;cursor:pointer;box-shadow:0 12px 28px rgba(189,147,249,0.24);white-space:nowrap;}
 button:hover{filter:brightness(1.04);}
+button.compact{min-height:2.05rem;margin:0;padding:0.35rem 0.8rem;border-radius:999px;font-size:0.92rem;box-shadow:none;}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem;align-items:start;}
 .count-badge{display:inline-flex;align-items:center;padding:0.3rem 0.65rem;border-radius:999px;background:rgba(139,233,253,0.12);border:1px solid rgba(139,233,253,0.3);color:var(--cyan);font-size:0.82rem;font-weight:700;}
 .list-panel{padding:1rem 1rem 1.1rem;}
@@ -215,6 +217,18 @@ local function render_activity_chip(enabled, active)
   end
 
   return render_chip("Inactive", "inactive")
+end
+
+local function render_enable_form(script_name, toggle_name, enabled)
+  if enabled ~= false then
+    return ""
+  end
+
+  return '<form class="status-action" method="post" action="'
+    .. util.html_escape(script_name)
+    .. '"><input type="hidden" name="action" value="enable_toggle"><input type="hidden" name="toggle_name" value="'
+    .. util.html_escape(toggle_name)
+    .. '"><button class="compact" type="submit">Enable</button></form>'
 end
 
 local function render_banner(load_error, banner, banner_kind)
@@ -405,26 +419,32 @@ function M.render_page(script_name, state)
     }),
     render_status_item("Always blocklist", {
       render_enabled_chip(settings.always_enabled),
+      render_enable_form(script_name, "always", settings.always_enabled),
     }, "Active whenever internet is available."),
     render_status_item("Workday blocklist", {
       render_enabled_chip(settings.workday_enabled),
       render_activity_chip(settings.workday_enabled, state.workday_active),
+      render_enable_form(script_name, "workday", settings.workday_enabled),
     }, render_window_detail(schedule_state.workday)),
     render_status_item("After work blocklist", {
       render_enabled_chip(settings.after_work_enabled),
       render_activity_chip(settings.after_work_enabled, state.after_work_active),
+      render_enable_form(script_name, "after_work", settings.after_work_enabled),
     }, render_window_detail(schedule_state.after_work)),
     render_status_item("Password vault blocklist", {
       render_enabled_chip(settings.password_vault_enabled),
       render_activity_chip(settings.password_vault_enabled, state.password_vault_active),
+      render_enable_form(script_name, "password_vault", settings.password_vault_enabled),
     }, render_window_detail(schedule_state.password_vault)),
     render_status_item("Overnight lockout", {
       render_enabled_chip(settings.overnight_enabled),
       render_activity_chip(settings.overnight_enabled, state.overnight_active),
+      render_enable_form(script_name, "overnight", settings.overnight_enabled),
     }, render_overnight_detail(schedule_state.overnight)),
     render_status_item("Saturday lockout", {
       render_enabled_chip(settings.saturday_blockout_enabled),
       render_activity_chip(settings.saturday_blockout_enabled, state.saturday_blockout_active),
+      render_enable_form(script_name, "saturday_blockout", settings.saturday_blockout_enabled),
     }, "Blocks LAN to WAN internet access on Saturdays."),
   }
   local parts = {}

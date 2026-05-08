@@ -195,9 +195,11 @@ Rules to keep in mind:
 The local web page is append-only by design:
 
 - it can add entries to `always`, `workday`, `after work`, or `password vault`
+- it can enable disabled blocklists and lockouts
 - it cannot delete entries
 - it cannot edit passthrough rules
 - it cannot disable enforcement
+- it cannot disable blocklists or lockouts
 
 ## 9. Verify A Working Install
 

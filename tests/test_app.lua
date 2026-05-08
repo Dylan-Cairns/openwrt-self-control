@@ -59,6 +59,32 @@ local function installed_capture_map()
   }
 end
 
+local function mutable_installed_fixture(overrides)
+  local capture_state = installed_capture_map()
+  for key, value in pairs(overrides or {}) do
+    capture_state[key] = value
+  end
+
+  local fixture = helper.make_context({
+    capture = function(command)
+      return capture_state[command] or ""
+    end,
+    execute = function(log, command)
+      table.insert(log, command)
+
+      local option, value = command:match("^uci set quietwrt%.settings%.([%w_]+)='([^']+)'$")
+      if option and value then
+        capture_state["uci -q get quietwrt.settings." .. option] = value
+      end
+
+      return 0
+    end,
+  })
+
+  fixture.capture_state = capture_state
+  return fixture
+end
+
 function TestApp:test_get_download_zip_returns_attachment()
   local fixture = helper.make_context({
     capture_map = {
@@ -147,5 +173,61 @@ function TestApp:test_post_import_zip_merges_uploaded_archive()
   lu.assertStrContains(output, "Status: 303 See Other")
   lu.assertStrContains(output, "kind=success")
   lu.assertEquals(helper.read_file(fixture.paths.always_list_path), "current.example\nnew.example\n")
+  fixture.cleanup()
+end
+
+function TestApp:test_post_enable_toggle_only_turns_disabled_toggle_on()
+  local fixture = mutable_installed_fixture({
+    ["uci -q get quietwrt.settings.after_work_enabled"] = "0",
+  })
+
+  helper.write_config(fixture.paths.config_path, {})
+  helper.write_file(fixture.paths.always_list_path, "always.example\n")
+  helper.write_file(fixture.paths.workday_list_path, "")
+  helper.write_file(fixture.paths.after_work_list_path, "after.example\n")
+  helper.write_file(fixture.paths.password_vault_list_path, "")
+  helper.write_file(fixture.paths.passthrough_rules_path, "")
+
+  local body = "action=enable_toggle&toggle_name=after_work&enabled=false"
+  local output = capture_cgi({
+    REQUEST_METHOD = "POST",
+    CONTENT_TYPE = "application/x-www-form-urlencoded",
+    CONTENT_LENGTH = tostring(#body),
+    SCRIPT_NAME = "/cgi-bin/quietwrt",
+    STDIN = body,
+  }, {
+    env = fixture.env,
+    paths = fixture.paths,
+  })
+
+  lu.assertStrContains(output, "Status: 303 See Other")
+  lu.assertStrContains(output, "kind=success")
+  lu.assertStrContains(output, "Enabled%20After%20work%20blocklist")
+
+  local joined = table.concat(fixture.commands, "\n")
+  lu.assertStrContains(joined, "uci set quietwrt.settings.after_work_enabled='1'")
+  lu.assertNil(joined:find("uci set quietwrt.settings.after_work_enabled='0'", 1, true))
+  fixture.cleanup()
+end
+
+function TestApp:test_post_enable_toggle_rejects_unknown_toggle()
+  local fixture = mutable_installed_fixture()
+  local body = "action=enable_toggle&toggle_name=unknown"
+
+  local output = capture_cgi({
+    REQUEST_METHOD = "POST",
+    CONTENT_TYPE = "application/x-www-form-urlencoded",
+    CONTENT_LENGTH = tostring(#body),
+    SCRIPT_NAME = "/cgi-bin/quietwrt",
+    STDIN = body,
+  }, {
+    env = fixture.env,
+    paths = fixture.paths,
+  })
+
+  lu.assertStrContains(output, "Status: 303 See Other")
+  lu.assertStrContains(output, "kind=error")
+  lu.assertStrContains(output, "Unknown%20toggle")
+  lu.assertEquals(#fixture.commands, 0)
   fixture.cleanup()
 end

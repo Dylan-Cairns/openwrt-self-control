@@ -29,7 +29,7 @@ You can change the `workday`, `after work`, `password vault`, and `overnight` wi
 - firewall rules reduce DNS bypass and enforce the nightly curfew
 - the same curfew firewall rule is reused for the optional Saturday blockout
 - a boot-time sync plus recurring sync jobs keep policy aligned after reboot and across schedule transitions
-- a small LAN page can append new entries to any scheduled blocklist
+- a small LAN page can append new entries to any scheduled blocklist and enable disabled restrictions
 - a Windows PowerShell CLI installs, updates, toggles, edits schedule windows, backs up, and restores QuietWrt over SSH
 
 Fresh installs default to:

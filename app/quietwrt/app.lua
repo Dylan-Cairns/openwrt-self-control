@@ -20,6 +20,31 @@ local function import_message(result)
     .. "."
 end
 
+local function toggle_label(toggle_name)
+  local labels = {
+    always = "Always blocklist",
+    workday = "Workday blocklist",
+    after_work = "After work blocklist",
+    password_vault = "Password vault blocklist",
+    overnight = "Overnight lockout",
+    saturday_blockout = "Saturday lockout",
+  }
+
+  return labels[toggle_name] or tostring(toggle_name or "restriction")
+end
+
+local function enable_toggle_message(toggle_name, result)
+  if result and result.already_enabled then
+    return toggle_label(toggle_name) .. " is already enabled."
+  end
+
+  return "Enabled "
+    .. toggle_label(toggle_name)
+    .. ". Active rules: "
+    .. tostring(result and result.active_rule_count or 0)
+    .. "."
+end
+
 function M.run_cgi(options)
   local context = service.new_context(options)
   local script_name = os.getenv("SCRIPT_NAME") or "/cgi-bin/quietwrt"
@@ -64,6 +89,22 @@ function M.run_cgi(options)
     end
 
     local form = util.parse_form_encoded(body)
+    if form.action == "enable_toggle" then
+      local ok, result = service.enable_toggle(context, form.toggle_name)
+      if not ok then
+        view.send_redirect(script_name, "error", result)
+        return
+      end
+
+      view.send_redirect(script_name, result.already_enabled and "info" or "success", enable_toggle_message(form.toggle_name, result))
+      return
+    end
+
+    if form.action ~= nil and form.action ~= "" then
+      view.send_redirect(script_name, "error", "Unsupported form action.")
+      return
+    end
+
     local result = service.add_entry(context, form.list_kind or "always", form.entry)
     view.send_redirect(script_name, result.kind or "info", result.message or "")
     return

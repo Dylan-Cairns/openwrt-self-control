@@ -529,6 +529,51 @@ function TestServiceIntegration:test_set_toggle_updates_settings_and_reapplies()
   fixture.cleanup()
 end
 
+function TestServiceIntegration:test_enable_toggle_only_enables_disabled_setting()
+  local fixture = installed_fixture({
+    capture_map = {
+      ["uci -q get quietwrt.settings.after_work_enabled"] = "0",
+    },
+  })
+
+  helper.write_config(fixture.paths.config_path, {})
+  helper.write_file(fixture.paths.always_list_path, "example.com\n")
+  helper.write_file(fixture.paths.workday_list_path, "work.com\n")
+  helper.write_file(fixture.paths.after_work_list_path, "after.example\n")
+  helper.write_file(fixture.paths.password_vault_list_path, "vault.example\n")
+  helper.write_file(fixture.paths.passthrough_rules_path, "")
+
+  local context = service.new_context({
+    env = fixture.env,
+    paths = fixture.paths,
+  })
+
+  local ok, result = service.enable_toggle(context, "after_work")
+  lu.assertTrue(ok)
+  lu.assertEquals(result.settings.after_work_enabled, true)
+
+  local joined = table.concat(fixture.commands, "\n")
+  lu.assertStrContains(joined, "uci set quietwrt.settings.after_work_enabled='1'")
+  lu.assertNil(joined:find("uci set quietwrt.settings.after_work_enabled='0'", 1, true))
+  fixture.cleanup()
+end
+
+function TestServiceIntegration:test_enable_toggle_is_idempotent_for_enabled_setting()
+  local fixture = installed_fixture()
+
+  local context = service.new_context({
+    env = fixture.env,
+    paths = fixture.paths,
+  })
+
+  local ok, result = service.enable_toggle(context, "after_work")
+  lu.assertTrue(ok)
+  lu.assertEquals(result.already_enabled, true)
+  lu.assertEquals(result.settings.after_work_enabled, true)
+  lu.assertEquals(#fixture.commands, 0)
+  fixture.cleanup()
+end
+
 function TestServiceIntegration:test_set_schedule_updates_cron_and_reapplies()
   local fixture = installed_fixture()
 

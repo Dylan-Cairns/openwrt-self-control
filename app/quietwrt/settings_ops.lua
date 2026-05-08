@@ -133,6 +133,29 @@ function M.set_toggle(context, toggle_name, enabled)
   return apply_settings_change(context, settings)
 end
 
+function M.enable_toggle(context, toggle_name)
+  local settings, err = settings_store.read_settings(context, settings_store.detect_installed(context))
+  if not settings then
+    return false, err
+  end
+
+  local definition = find_toggle(toggle_name)
+  if definition == nil then
+    return false, "Unknown toggle: " .. tostring(toggle_name)
+  end
+
+  if settings[definition.key] == true then
+    return true, {
+      settings = settings,
+      active_rule_count = nil,
+      already_enabled = true,
+    }
+  end
+
+  settings[definition.key] = true
+  return apply_settings_change(context, settings)
+end
+
 function M.set_schedule(context, schedule_name, start_value, end_value)
   local settings, err = settings_store.read_settings(context, settings_store.detect_installed(context))
   if not settings then
