@@ -37,6 +37,9 @@ function Show-QuietWrtStatus {
         }
     }
 
+    Write-Host "  Saturday blockout: $(if ($Status.saturday_blockout_enabled) { 'enabled' } else { 'disabled' })"
+    Write-Host "  Saturday blockout active now: $(if ($Status.saturday_blockout_active) { 'yes' } else { 'no' })"
+
     Write-Host "  Always entries: $($Status.always_count)"
     foreach ($definition in (Get-QuietWrtScheduleDefinitions)) {
         if ($definition.CountProperty) {
@@ -65,12 +68,13 @@ function Get-QuietWrtMenuLines {
         "4. $(if ($Status.after_work_enabled) { 'Disable' } else { 'Enable' }) after-work blocklist"
         "5. $(if ($Status.password_vault_enabled) { 'Disable' } else { 'Enable' }) password vault blocklist"
         "6. $(if ($Status.overnight_enabled) { 'Disable' } else { 'Enable' }) overnight blocking"
-        '7. Set workday window'
-        '8. Set after-work window'
-        '9. Set password vault window'
-        '10. Set overnight window'
-        '11. Backup all blocklists to this PC'
-        '12. Restore latest backup'
+        "7. $(if ($Status.saturday_blockout_enabled) { 'Disable' } else { 'Enable' }) Saturday blockout"
+        '8. Set workday window'
+        '9. Set after-work window'
+        '10. Set password vault window'
+        '11. Set overnight window'
+        '12. Backup all blocklists to this PC'
+        '13. Restore latest backup'
         '0. Exit'
     )
 }
@@ -151,7 +155,7 @@ function Invoke-QuietWrtMenuSelection {
             }
         }
         '7' {
-            $updatedStatus = Update-QuietWrtScheduleWindow -Connection $Connection -ScheduleName 'workday' -Status $Status
+            $updatedStatus = Set-QuietWrtToggleState -Connection $Connection -ToggleName 'saturday_blockout' -Enabled (-not [bool]$Status.saturday_blockout_enabled)
             Show-QuietWrtStatus -Status $updatedStatus
             return [pscustomobject]@{
                 Continue = $true
@@ -160,7 +164,7 @@ function Invoke-QuietWrtMenuSelection {
             }
         }
         '8' {
-            $updatedStatus = Update-QuietWrtScheduleWindow -Connection $Connection -ScheduleName 'after_work' -Status $Status
+            $updatedStatus = Update-QuietWrtScheduleWindow -Connection $Connection -ScheduleName 'workday' -Status $Status
             Show-QuietWrtStatus -Status $updatedStatus
             return [pscustomobject]@{
                 Continue = $true
@@ -169,7 +173,7 @@ function Invoke-QuietWrtMenuSelection {
             }
         }
         '9' {
-            $updatedStatus = Update-QuietWrtScheduleWindow -Connection $Connection -ScheduleName 'password_vault' -Status $Status
+            $updatedStatus = Update-QuietWrtScheduleWindow -Connection $Connection -ScheduleName 'after_work' -Status $Status
             Show-QuietWrtStatus -Status $updatedStatus
             return [pscustomobject]@{
                 Continue = $true
@@ -178,7 +182,7 @@ function Invoke-QuietWrtMenuSelection {
             }
         }
         '10' {
-            $updatedStatus = Update-QuietWrtScheduleWindow -Connection $Connection -ScheduleName 'overnight' -Status $Status
+            $updatedStatus = Update-QuietWrtScheduleWindow -Connection $Connection -ScheduleName 'password_vault' -Status $Status
             Show-QuietWrtStatus -Status $updatedStatus
             return [pscustomobject]@{
                 Continue = $true
@@ -187,6 +191,15 @@ function Invoke-QuietWrtMenuSelection {
             }
         }
         '11' {
+            $updatedStatus = Update-QuietWrtScheduleWindow -Connection $Connection -ScheduleName 'overnight' -Status $Status
+            Show-QuietWrtStatus -Status $updatedStatus
+            return [pscustomobject]@{
+                Continue = $true
+                Status = $updatedStatus
+                BackupPaths = $null
+            }
+        }
+        '12' {
             $backupPaths = Backup-QuietWrtBlocklists -Connection $Connection -OutputDirectory $BackupDirectory
             Write-Host ''
             Write-Host 'Saved backups:'
@@ -200,7 +213,7 @@ function Invoke-QuietWrtMenuSelection {
                 BackupPaths = $backupPaths
             }
         }
-        '12' {
+        '13' {
             $updatedStatus = Restore-QuietWrtBlocklists -Connection $Connection -BackupDirectory $BackupDirectory
             Show-QuietWrtStatus -Status $updatedStatus
             return [pscustomobject]@{

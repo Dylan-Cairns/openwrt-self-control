@@ -100,6 +100,7 @@ function M.read_settings(context, installed)
       after_work_enabled = false,
       password_vault_enabled = false,
       overnight_enabled = false,
+      saturday_blockout_enabled = false,
       schema_version = nil,
     }, nil
   end
@@ -164,6 +165,7 @@ function M.default_install_settings()
     after_work_enabled = true,
     password_vault_enabled = true,
     overnight_enabled = false,
+    saturday_blockout_enabled = false,
     workday_start = defaults.workday.start,
     workday_end = defaults.workday["end"],
     after_work_start = defaults.after_work.start,

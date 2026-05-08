@@ -72,7 +72,7 @@ function M.apply_mode(context, options)
     return false, adguard_error
   end
 
-  local curfew_enabled = activity.overnight_active
+  local curfew_enabled = activity.overnight_active or activity.saturday_blockout_active
   local previous_firewall = firewall.capture_snapshot(context)
   local desired_firewall = firewall.desired_snapshot(curfew_enabled)
   if not firewall.snapshots_equal(previous_firewall, desired_firewall) then

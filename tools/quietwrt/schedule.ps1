@@ -1,7 +1,7 @@
 function Set-QuietWrtToggleState {
     param(
         $Connection,
-        [ValidateSet('always', 'workday', 'after_work', 'password_vault', 'overnight')]
+        [ValidateSet('always', 'workday', 'after_work', 'password_vault', 'overnight', 'saturday_blockout')]
         [string]$ToggleName,
         [bool]$Enabled
     )

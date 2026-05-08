@@ -5,6 +5,10 @@ local util = require("quietwrt.util")
 
 local M = {}
 
+local function is_saturday(time_table)
+  return tonumber(time_table and time_table.wday) == 7
+end
+
 local function serialize_window(window)
   return {
     name = window.name,
@@ -57,6 +61,7 @@ function M.build_runtime_activity(settings, now_table)
   local after_work_window_active = schedule.window_contains(windows.after_work, now_table)
   local password_vault_window_active = schedule.window_contains(windows.password_vault, now_table)
   local overnight_window_active = schedule.window_contains(windows.overnight, now_table)
+  local saturday_blockout_window_active = is_saturday(now_table)
 
   return {
     schedule = windows,
@@ -64,10 +69,12 @@ function M.build_runtime_activity(settings, now_table)
     after_work_window_active = after_work_window_active,
     password_vault_window_active = password_vault_window_active,
     overnight_window_active = overnight_window_active,
+    saturday_blockout_window_active = saturday_blockout_window_active,
     workday_active = settings.workday_enabled and workday_window_active,
     after_work_active = settings.after_work_enabled and after_work_window_active,
     password_vault_active = settings.password_vault_enabled and password_vault_window_active,
     overnight_active = settings.overnight_enabled and overnight_window_active,
+    saturday_blockout_active = settings.saturday_blockout_enabled and saturday_blockout_window_active,
   }, nil
 end
 
@@ -130,10 +137,12 @@ function M.build_view_state(parsed_config, lists, settings, activity, hardening_
     after_work_window_active = activity.after_work_window_active,
     password_vault_window_active = activity.password_vault_window_active,
     overnight_window_active = activity.overnight_window_active,
+    saturday_blockout_window_active = activity.saturday_blockout_window_active,
     workday_active = activity.workday_active,
     after_work_active = activity.after_work_active,
     password_vault_active = activity.password_vault_active,
     overnight_active = activity.overnight_active,
+    saturday_blockout_active = activity.saturday_blockout_active,
     hardening = hardening_state,
     warnings = {},
   }
@@ -161,6 +170,7 @@ function M.uninstalled_snapshot(now_table)
       after_work_enabled = false,
       password_vault_enabled = false,
       overnight_enabled = false,
+      saturday_blockout_enabled = false,
     },
     schedule = util.json_object(),
     always_hosts = {},
@@ -174,10 +184,12 @@ function M.uninstalled_snapshot(now_table)
     after_work_window_active = false,
     password_vault_window_active = false,
     overnight_window_active = false,
+    saturday_blockout_window_active = false,
     workday_active = false,
     after_work_active = false,
     password_vault_active = false,
     overnight_active = false,
+    saturday_blockout_active = false,
     hardening = {
       dns_intercept = false,
       dot_block = false,

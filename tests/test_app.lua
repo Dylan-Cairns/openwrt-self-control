@@ -36,7 +36,7 @@ end
 function TestApp:test_get_download_zip_returns_attachment()
   local fixture = helper.make_context({
     capture_map = {
-      ["uci -q get quietwrt.settings.schema_version"] = "3",
+      ["uci -q get quietwrt.settings.schema_version"] = "4",
     },
   })
 

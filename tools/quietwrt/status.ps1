@@ -19,10 +19,12 @@ function New-QuietWrtStatusPlaceholder {
         after_work_enabled = $false
         password_vault_enabled = $false
         overnight_enabled = $false
+        saturday_blockout_enabled = $false
         workday_active = $false
         after_work_active = $false
         password_vault_active = $false
         overnight_active = $false
+        saturday_blockout_active = $false
         always_count = 0
         workday_count = 0
         after_work_count = 0

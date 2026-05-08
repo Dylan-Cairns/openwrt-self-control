@@ -395,6 +395,10 @@ function M.render_page(script_name, state)
       render_enabled_chip(settings.overnight_enabled),
       render_activity_chip(settings.overnight_enabled, state.overnight_active),
     }, render_overnight_detail(schedule_state.overnight)),
+    render_status_item("Saturday lockout", {
+      render_enabled_chip(settings.saturday_blockout_enabled),
+      render_activity_chip(settings.saturday_blockout_enabled, state.saturday_blockout_active),
+    }, "Blocks LAN to WAN internet access on Saturdays."),
   }
   local parts = {}
 

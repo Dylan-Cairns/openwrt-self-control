@@ -6,12 +6,13 @@ TestServiceIntegration = {}
 
 local function installed_capture_map(overrides)
   local capture = {
-    ["uci -q get quietwrt.settings.schema_version"] = "3",
+    ["uci -q get quietwrt.settings.schema_version"] = "4",
     ["uci -q get quietwrt.settings.always_enabled"] = "1",
     ["uci -q get quietwrt.settings.workday_enabled"] = "1",
     ["uci -q get quietwrt.settings.after_work_enabled"] = "1",
     ["uci -q get quietwrt.settings.password_vault_enabled"] = "1",
     ["uci -q get quietwrt.settings.overnight_enabled"] = "1",
+    ["uci -q get quietwrt.settings.saturday_blockout_enabled"] = "0",
     ["uci -q get quietwrt.settings.workday_start"] = "0400",
     ["uci -q get quietwrt.settings.workday_end"] = "1630",
     ["uci -q get quietwrt.settings.after_work_start"] = "1630",
@@ -89,9 +90,10 @@ function TestServiceIntegration:test_install_bootstraps_lists_sets_default_sched
   lu.assertStrContains(crontab, "0 19 * * * /usr/bin/quietwrtctl sync")
 
   local joined = table.concat(fixture.commands, "\n")
-  lu.assertStrContains(joined, "uci set quietwrt.settings.schema_version='3'")
+  lu.assertStrContains(joined, "uci set quietwrt.settings.schema_version='4'")
   lu.assertStrContains(joined, "uci set quietwrt.settings.after_work_enabled='1'")
   lu.assertStrContains(joined, "uci set quietwrt.settings.password_vault_enabled='1'")
+  lu.assertStrContains(joined, "uci set quietwrt.settings.saturday_blockout_enabled='0'")
   lu.assertStrContains(joined, "uci set quietwrt.settings.overnight_start='1900'")
   lu.assertStrContains(joined, "uci set firewall.quietwrt_curfew.enabled='0'")
   fixture.cleanup()
@@ -343,6 +345,7 @@ function TestServiceIntegration:test_status_json_reports_flags_counts_schedules_
   lu.assertStrContains(output, '"workday_enabled":false')
   lu.assertStrContains(output, '"after_work_enabled":true')
   lu.assertStrContains(output, '"password_vault_enabled":true')
+  lu.assertStrContains(output, '"saturday_blockout_enabled":false')
   lu.assertStrContains(output, '"after_work_count":1')
   lu.assertStrContains(output, '"password_vault_count":1')
   lu.assertStrContains(output, '"display_start":"16:30"')
@@ -400,7 +403,7 @@ function TestServiceIntegration:test_status_json_contract_exposes_router_time_sc
     json = true,
   })
   lu.assertTrue(ok)
-  lu.assertStrContains(output, '"schema_version":"3"')
+  lu.assertStrContains(output, '"schema_version":"4"')
   lu.assertStrContains(output, '"installed":true')
   lu.assertStrContains(output, '"router_time":"21:05"')
   lu.assertStrContains(output, '"schedule":{')
@@ -433,6 +436,39 @@ function TestServiceIntegration:test_status_json_contract_exposes_router_time_sc
   lu.assertStrContains(output, '"dot_block":false')
   lu.assertStrContains(output, '"overnight_rule":false')
   lu.assertStrContains(output, '"warnings":[]')
+  fixture.cleanup()
+end
+
+function TestServiceIntegration:test_saturday_blockout_enables_curfew_firewall_rule()
+  local fixture = installed_fixture({
+    now = function()
+      return { hour = 12, min = 0, wday = 7 }
+    end,
+    capture_map = {
+      ["uci -q get quietwrt.settings.overnight_enabled"] = "0",
+      ["uci -q get quietwrt.settings.saturday_blockout_enabled"] = "1",
+    },
+  })
+
+  helper.write_config(fixture.paths.config_path, {})
+  helper.write_file(fixture.paths.always_list_path, "example.com\n")
+  helper.write_file(fixture.paths.workday_list_path, "")
+  helper.write_file(fixture.paths.after_work_list_path, "")
+  helper.write_file(fixture.paths.password_vault_list_path, "")
+  helper.write_file(fixture.paths.passthrough_rules_path, "")
+
+  local context = service.new_context({
+    env = fixture.env,
+    paths = fixture.paths,
+  })
+
+  local ok, result = service.apply_current_mode(context)
+  lu.assertTrue(ok)
+  lu.assertEquals(result.activity.overnight_active, false)
+  lu.assertEquals(result.activity.saturday_blockout_active, true)
+
+  local joined = table.concat(fixture.commands, "\n")
+  lu.assertStrContains(joined, "uci set firewall.quietwrt_curfew.enabled='1'")
   fixture.cleanup()
 end
 
@@ -488,7 +524,7 @@ function TestServiceIntegration:test_set_toggle_updates_settings_and_reapplies()
 
   local joined = table.concat(fixture.commands, "\n")
   lu.assertStrContains(joined, "uci set quietwrt.settings.after_work_enabled='0'")
-  lu.assertStrContains(joined, "uci set quietwrt.settings.schema_version='3'")
+  lu.assertStrContains(joined, "uci set quietwrt.settings.schema_version='4'")
   fixture.cleanup()
 end
 

@@ -9,6 +9,7 @@ Describe 'QuietWrt PowerShell CLI' {
             after_work_enabled = $true
             password_vault_enabled = $false
             overnight_enabled = $true
+            saturday_blockout_enabled = $false
         }
 
         $lines = Get-QuietWrtMenuLines -Status $status
@@ -19,8 +20,9 @@ Describe 'QuietWrt PowerShell CLI' {
         $lines[3] | Should Be '4. Disable after-work blocklist'
         $lines[4] | Should Be '5. Enable password vault blocklist'
         $lines[5] | Should Be '6. Disable overnight blocking'
-        $lines[10] | Should Be '11. Backup all blocklists to this PC'
-        $lines[11] | Should Be '12. Restore latest backup'
+        $lines[6] | Should Be '7. Enable Saturday blockout'
+        $lines[11] | Should Be '12. Backup all blocklists to this PC'
+        $lines[12] | Should Be '13. Restore latest backup'
     }
 
     It 'prompts for the router password using visible input when none is supplied' {
@@ -69,6 +71,7 @@ Describe 'QuietWrt PowerShell CLI' {
         $status.schedule.password_vault.start | Should Be '0945'
         $status.after_work_active | Should Be $true
         $status.password_vault_count | Should Be 1
+        $status.saturday_blockout_enabled | Should Be $false
     }
 
     It 'fills missing newer status fields when talking to an older router payload' {
@@ -85,6 +88,7 @@ Describe 'QuietWrt PowerShell CLI' {
 
         $status.installed | Should Be $true
         $status.password_vault_enabled | Should Be $false
+        $status.saturday_blockout_enabled | Should Be $false
         $status.password_vault_count | Should Be 0
         $status.schedule.workday.name | Should Be 'workday'
         $status.schedule.workday.label | Should Be 'Workday'
@@ -99,7 +103,7 @@ Describe 'QuietWrt PowerShell CLI' {
         Mock Invoke-QuietWrtRemote {
             [pscustomobject]@{
                 ExitStatus = 0
-                Output = '{"schema_version":"4","installed":true,"router_time":"21:05","protection_enabled":true,"enforcement_ready":true,"always_enabled":true,"workday_enabled":true,"after_work_enabled":true,"password_vault_enabled":true,"overnight_enabled":false,"always_count":1,"workday_count":2,"after_work_count":3,"password_vault_count":4,"active_rule_count":10,"schedule":{"after_work":{"start":"1630","end":"1900","display_start":"16:30","display_end":"19:00","overnight":false,"label":"After work","summary":"16:30 to 19:00"}},"hardening":{"dns_intercept":true,"dot_block":true,"overnight_rule":false},"warnings":[]}'
+                Output = '{"schema_version":"4","installed":true,"router_time":"21:05","protection_enabled":true,"enforcement_ready":true,"always_enabled":true,"workday_enabled":true,"after_work_enabled":true,"password_vault_enabled":true,"overnight_enabled":false,"saturday_blockout_enabled":true,"saturday_blockout_active":true,"always_count":1,"workday_count":2,"after_work_count":3,"password_vault_count":4,"active_rule_count":10,"schedule":{"after_work":{"start":"1630","end":"1900","display_start":"16:30","display_end":"19:00","overnight":false,"label":"After work","summary":"16:30 to 19:00"}},"hardening":{"dns_intercept":true,"dot_block":true,"overnight_rule":false},"warnings":[]}'
                 Raw = $null
             }
         }
@@ -108,6 +112,8 @@ Describe 'QuietWrt PowerShell CLI' {
 
         $status.schema_version | Should Be '4'
         $status.router_time | Should Be '21:05'
+        $status.saturday_blockout_enabled | Should Be $true
+        $status.saturday_blockout_active | Should Be $true
         $status.schedule.after_work.label | Should Be 'After work'
         $status.schedule.after_work.summary | Should Be '16:30 to 19:00'
         $status.schedule.workday | Should Be $null
@@ -188,7 +194,23 @@ Describe 'QuietWrt PowerShell CLI' {
         $result = Invoke-QuietWrtMenuSelection -Selection '4' -Connection ([pscustomobject]@{}) -Status $status -BackupDirectory $TestDrive
 
         $result.Status.after_work_enabled | Should Be $false
-        Assert-MockCalled Set-QuietWrtToggleState -Times 1 -Exactly
+        Assert-MockCalled Set-QuietWrtToggleState -Times 1 -Exactly -ParameterFilter { $ToggleName -eq 'after_work' -and $Enabled -eq $false }
+    }
+
+    It 'dispatches the Saturday blockout toggle menu action to the router control plane' {
+        $status = [pscustomobject]@{
+            saturday_blockout_enabled = $false
+        }
+        $updatedStatus = New-QuietWrtStatusPlaceholder -Installed $true
+        $updatedStatus.saturday_blockout_enabled = $true
+
+        Mock Set-QuietWrtToggleState { $updatedStatus } -ParameterFilter { $ToggleName -eq 'saturday_blockout' -and $Enabled -eq $true }
+        Mock Show-QuietWrtStatus { }
+
+        $result = Invoke-QuietWrtMenuSelection -Selection '7' -Connection ([pscustomobject]@{}) -Status $status -BackupDirectory $TestDrive
+
+        $result.Status.saturday_blockout_enabled | Should Be $true
+        Assert-MockCalled Set-QuietWrtToggleState -Times 1 -Exactly -ParameterFilter { $ToggleName -eq 'saturday_blockout' -and $Enabled -eq $true }
     }
 
     It 'dispatches install/update from the menu and returns the updated status' {

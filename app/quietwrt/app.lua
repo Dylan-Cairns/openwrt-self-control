@@ -71,6 +71,7 @@ function M.run_cgi(options)
     after_work_active = state and state.after_work_active,
     password_vault_active = state and state.password_vault_active,
     overnight_active = state and state.overnight_active,
+    saturday_blockout_active = state and state.saturday_blockout_active,
     schedule = state and state.schedule or {},
     always_hosts = state and state.always_hosts or {},
     workday_hosts = state and state.workday_hosts or {},
@@ -90,7 +91,7 @@ Commands:
   sync      Rebuild AdGuard rules for the current time and update curfew firewall state.
   apply     Alias for sync.
   status    Show current list counts and schedule state. Use --json for machine-readable output.
-  set       Toggle always, workday, after_work, password_vault, or overnight on or off.
+  set       Toggle always, workday, after_work, password_vault, overnight, or saturday_blockout on or off.
   schedule  Set workday, after_work, password_vault, or overnight start/end times.
   restore   Restore always/workday/after-work/password-vault list files from uploaded backup files and apply them.
 ]])
@@ -183,7 +184,7 @@ function M.run_cli(argv, options)
     elseif raw_state == "off" then
       enabled = false
     else
-      io.stderr:write("Usage: quietwrtctl set <always|workday|after_work|password_vault|overnight> <on|off>\n")
+      io.stderr:write("Usage: quietwrtctl set <always|workday|after_work|password_vault|overnight|saturday_blockout> <on|off>\n")
       return 1
     end
 

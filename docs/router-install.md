@@ -75,8 +75,9 @@ Fresh installs currently default to:
 - `after work`: enabled
 - `password vault`: enabled
 - `overnight`: disabled
+- `Saturday blockout`: disabled
 
-This keeps the nighttime curfew off until you explicitly enable it after confirming the rest of the install behaves as expected.
+This keeps full-internet lockouts off until you explicitly enable them after confirming the rest of the install behaves as expected.
 
 If `AdGuard Home` protection is disabled, install now fails closed instead of reporting a healthy QuietWrt install.
 
@@ -91,12 +92,13 @@ The local CLI keeps one SSH session plus an SCP-backed file transfer connection 
 4. Enable/Disable after-work blocklist
 5. Enable/Disable password vault blocklist
 6. Enable/Disable overnight blocking
-7. Set workday window
-8. Set after-work window
-9. Set password vault window
-10. Set overnight window
-11. Backup all blocklists to this PC
-12. Restore latest backup
+7. Enable/Disable Saturday blockout
+8. Set workday window
+9. Set after-work window
+10. Set password vault window
+11. Set overnight window
+12. Backup all blocklists to this PC
+13. Restore latest backup
 ```
 
 After any state-changing action, it prints the refreshed router status.
@@ -132,12 +134,15 @@ Fresh installs default to these windows:
 - `16:30` to `19:00`: `always + after work`
 - `09:45` to `09:30`: `always + password vault`
 - `19:00` to `04:00`: internet off when overnight blocking is enabled
+- Saturday: internet off all day when Saturday blockout is enabled
 
 QuietWrt reconciles state in three ways:
 
 - immediately during install/update
 - on boot through `/etc/init.d/quietwrt`
 - through cron at each configured window boundary and every `10` minutes as a backstop
+
+The Saturday blockout relies on the recurring `10` minute backstop instead of adding day-specific cron entries, so start/end changes around midnight can drift by up to about `10` minutes.
 
 ## 7. Managed Router State
 
@@ -162,6 +167,7 @@ QuietWrt UCI state lives under:
 - `quietwrt.settings.after_work_enabled`
 - `quietwrt.settings.password_vault_enabled`
 - `quietwrt.settings.overnight_enabled`
+- `quietwrt.settings.saturday_blockout_enabled`
 - `quietwrt.settings.workday_start`
 - `quietwrt.settings.workday_end`
 - `quietwrt.settings.after_work_start`
@@ -202,9 +208,10 @@ After install, confirm:
 3. a site added to `After work blocked` is blocked between `16:30` and `19:00`
 4. a site added to `Password vault blocked` is blocked except during the daily `09:30` to `09:45` opening
 5. internet access is unavailable between `19:00` and `04:00` when overnight blocking is enabled
-6. router-local access to `https://<router-ip>:8443/cgi-bin/quietwrt` still works during the curfew window
-7. direct client DNS on `53` is intercepted
-8. direct `DoT` on `853` is blocked
+6. internet access is unavailable on Saturday when Saturday blockout is enabled
+7. router-local access to `https://<router-ip>:8443/cgi-bin/quietwrt` still works during lockout windows
+8. direct client DNS on `53` is intercepted
+9. direct `DoT` on `853` is blocked
 
 ## 10. Direct Router Commands
 
@@ -225,6 +232,8 @@ Useful direct commands:
 /usr/bin/quietwrtctl set password_vault off
 /usr/bin/quietwrtctl set overnight on
 /usr/bin/quietwrtctl set overnight off
+/usr/bin/quietwrtctl set saturday_blockout on
+/usr/bin/quietwrtctl set saturday_blockout off
 /usr/bin/quietwrtctl schedule workday 0400 1630
 /usr/bin/quietwrtctl schedule after_work 1630 1900
 /usr/bin/quietwrtctl schedule password_vault 0945 0930

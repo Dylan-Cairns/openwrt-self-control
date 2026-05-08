@@ -52,11 +52,13 @@ function TestView:test_render_page_uses_dracula_status_rows_and_non_editable_rul
         after_work_enabled = true,
         password_vault_enabled = true,
         overnight_enabled = false,
+        saturday_blockout_enabled = false,
       },
       workday_active = false,
       after_work_active = true,
       password_vault_active = true,
       overnight_active = false,
+      saturday_blockout_active = false,
       schedule = {
         workday = {
           display_start = "04:00",
@@ -104,6 +106,7 @@ function TestView:test_render_page_uses_dracula_status_rows_and_non_editable_rul
   lu.assertStrContains(html, "After work blocklist")
   lu.assertStrContains(html, "Password vault blocklist")
   lu.assertStrContains(html, "Overnight lockout")
+  lu.assertStrContains(html, "Saturday lockout")
   lu.assertStrContains(html, "Active whenever internet is available.")
   lu.assertStrContains(html, "Active from <code>04:00</code> until <code>16:30</code>.")
   lu.assertStrContains(html, "Active from <code>16:30</code> until <code>19:00</code>.")
@@ -111,7 +114,7 @@ function TestView:test_render_page_uses_dracula_status_rows_and_non_editable_rul
   lu.assertStrContains(html, "Internet access is fully blocked from <code>19:00</code> until <code>04:00</code> (overnight).")
   lu.assertEquals(count_occurrences(html, "Enabled"), 4)
   lu.assertStrContains(html, '<span class="chip disabled">Disabled</span>')
-  lu.assertEquals(count_occurrences(html, "Inactive"), 2)
+  lu.assertEquals(count_occurrences(html, "Inactive"), 3)
   lu.assertEquals(count_occurrences(html, '<span class="chip active">Active</span>'), 2)
   lu.assertStrContains(html, 'placeholder="example.com"')
   lu.assertStrContains(html, '<option value="after_work">After work blocked</option>')

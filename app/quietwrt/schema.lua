@@ -1,6 +1,6 @@
 local M = {}
 
-M.SCHEMA_VERSION = "3"
+M.SCHEMA_VERSION = "4"
 
 M.MANAGED_FIREWALL_SECTIONS = {
   "quietwrt_dns_int",
@@ -28,6 +28,7 @@ M.TOGGLES = {
   { name = "after_work", key = "after_work_enabled" },
   { name = "password_vault", key = "password_vault_enabled" },
   { name = "overnight", key = "overnight_enabled" },
+  { name = "saturday_blockout", key = "saturday_blockout_enabled" },
 }
 
 return M
