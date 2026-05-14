@@ -57,6 +57,14 @@ The local CLI can:
 - save router blocklist backups into `backups/`
 - restore the newest matching `quietwrt-always-*`, `quietwrt-workday-*`, `quietwrt-after-work-*`, and `quietwrt-password-vault-*` backups
 
+To clean up old local backups, run:
+
+```powershell
+.\tools\prune-backups.ps1
+```
+
+The script shows which backup files will remain, which old backup files will be deleted, and asks for confirmation before deleting anything.
+
 Detailed setup and operating instructions live in `docs/router-install.md`.
 
 ## Tests
