@@ -209,7 +209,7 @@ local function render_activity_chip(enabled, active)
   end
 
   if enabled ~= true then
-    return render_chip("Inactive", "inactive")
+    return ""
   end
 
   if active == true then

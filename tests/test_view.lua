@@ -123,7 +123,7 @@ function TestView:test_render_page_uses_dracula_status_rows_and_non_editable_rul
   lu.assertStrContains(html, 'name="toggle_name" value="saturday_blockout"')
   lu.assertNil(html:find('name="toggle_name" value="always"', 1, true))
   lu.assertNil(html:find('name="toggle_name" value="workday"', 1, true))
-  lu.assertEquals(count_occurrences(html, "Inactive"), 3)
+  lu.assertEquals(count_occurrences(html, "Inactive"), 1)
   lu.assertEquals(count_occurrences(html, '<span class="chip active">Active</span>'), 2)
   lu.assertStrContains(html, 'placeholder="example.com"')
   lu.assertStrContains(html, '<option value="after_work">After work blocked</option>')
