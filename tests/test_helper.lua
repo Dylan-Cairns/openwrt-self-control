@@ -182,6 +182,7 @@ function M.make_context(overrides)
     init_service_enabled_path = M.join_path(root, "etc", "rc.d", "S99quietwrt"),
     restart_cron_command = "restart-cron",
     restart_firewall_command = "restart-firewall",
+    lock_dir = M.join_path(root, "quietwrt.lock"),
   }
 
   assert(M.create_dirs({
@@ -195,6 +196,7 @@ function M.make_context(overrides)
   }), "failed to create fixture directory tree for " .. root)
 
   local command_log = {}
+  local lock_dirs = {}
   local execute = overrides.execute or function(log, command)
     table.insert(command_log, command)
     return 0
@@ -211,7 +213,10 @@ function M.make_context(overrides)
   local env = {
     read_file = M.read_file,
     write_file = M.write_file,
-    rename_file = os.rename,
+    rename_file = overrides.rename_file or function(source, target)
+      os.remove(target)
+      return os.rename(source, target)
+    end,
     remove_file = os.remove,
     file_exists = M.path_exists,
     ensure_dir = function(path)
@@ -221,6 +226,30 @@ function M.make_context(overrides)
       return execute(command_log, command)
     end,
     capture = capture,
+    make_lock_dir = overrides.make_lock_dir or function(path)
+      if lock_dirs[path] then
+        return false
+      end
+
+      lock_dirs[path] = true
+      return true
+    end,
+    remove_tree = overrides.remove_tree or function(path)
+      lock_dirs[path] = nil
+      return true
+    end,
+    pid = overrides.pid or function()
+      return "test-pid"
+    end,
+    process_exists = overrides.process_exists or function()
+      return true
+    end,
+    sleep = overrides.sleep or function()
+      return true
+    end,
+    time = overrides.time or function()
+      return os.time()
+    end,
     now = overrides.now or function()
       return { hour = 10, min = 0 }
     end,

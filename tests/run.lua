@@ -9,6 +9,7 @@ local lu = require("luaunit")
 
 local function run_suite()
   helper.begin_suite()
+  dofile("tests/test_context.lua")
   dofile("tests/test_archive.lua")
   dofile("tests/test_rules.lua")
   dofile("tests/test_schedule.lua")

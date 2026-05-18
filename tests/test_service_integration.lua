@@ -473,6 +473,38 @@ function TestServiceIntegration:test_saturday_blockout_enables_curfew_firewall_r
   fixture.cleanup()
 end
 
+function TestServiceIntegration:test_sync_disables_curfew_when_adguard_config_is_missing_outside_lockout()
+  local fixture = installed_fixture({
+    now = function()
+      return { hour = 9, min = 0, wday = 1 }
+    end,
+    capture_map = {
+      ["uci -q get quietwrt.settings.overnight_enabled"] = "0",
+      ["uci -q get quietwrt.settings.saturday_blockout_enabled"] = "1",
+    },
+  })
+
+  helper.write_file(fixture.paths.always_list_path, "example.com\n")
+  helper.write_file(fixture.paths.workday_list_path, "")
+  helper.write_file(fixture.paths.after_work_list_path, "")
+  helper.write_file(fixture.paths.password_vault_list_path, "")
+  helper.write_file(fixture.paths.passthrough_rules_path, "")
+
+  local context = service.new_context({
+    env = fixture.env,
+    paths = fixture.paths,
+  })
+
+  local ok, err = service.apply_current_mode(context)
+
+  lu.assertFalse(ok)
+  lu.assertStrContains(err, "Could not read")
+
+  local joined = table.concat(fixture.commands, "\n")
+  lu.assertStrContains(joined, "uci set firewall.quietwrt_curfew.enabled='0'")
+  fixture.cleanup()
+end
+
 function TestServiceIntegration:test_status_json_uninstalled_contract_remains_machine_readable()
   local fixture = helper.make_context({
     now = function()

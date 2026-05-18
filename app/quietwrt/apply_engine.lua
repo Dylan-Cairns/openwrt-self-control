@@ -7,11 +7,58 @@ local settings_store = require("quietwrt.settings_store")
 
 local M = {}
 
+local function reconcile_firewall(context, activity)
+  local curfew_enabled = activity.overnight_active or activity.saturday_blockout_active
+  local previous_firewall = firewall.capture_snapshot(context)
+  local desired_firewall = firewall.desired_snapshot(curfew_enabled)
+  if firewall.snapshots_equal(previous_firewall, desired_firewall) then
+    return true, {
+      changed = false,
+      previous = previous_firewall,
+    }
+  end
+
+  local firewall_ok, firewall_error = firewall.commit_snapshot(context, desired_firewall)
+  if not firewall_ok then
+    return false, {
+      error = firewall_error,
+      previous = previous_firewall,
+    }
+  end
+
+  return true, {
+    changed = true,
+    previous = previous_firewall,
+  }
+end
+
 function M.apply_mode(context, options)
   options = options or {}
 
   if options.require_installed ~= false and not settings_store.detect_installed(context) then
     return false, "QuietWrt is not installed."
+  end
+
+  local settings = options.settings
+  if settings == nil then
+    local settings_error
+    settings, settings_error = settings_store.read_settings(context, true)
+    if not settings then
+      return false, settings_error
+    end
+  end
+
+  local activity, activity_error = runtime.build_runtime_activity(settings, context.env.now())
+  if not activity then
+    return false, activity_error
+  end
+
+  local firewall_first = options.firewall_first == true
+  if firewall_first then
+    local firewall_ok, firewall_result = reconcile_firewall(context, activity)
+    if not firewall_ok then
+      return false, firewall_result.error
+    end
   end
 
   local parsed_config = options.parsed_config
@@ -46,20 +93,6 @@ function M.apply_mode(context, options)
     end
   end
 
-  local settings = options.settings
-  if settings == nil then
-    local settings_error
-    settings, settings_error = settings_store.read_settings(context, true)
-    if not settings then
-      return false, settings_error
-    end
-  end
-
-  local activity, activity_error = runtime.build_runtime_activity(settings, context.env.now())
-  if not activity then
-    return false, activity_error
-  end
-
   local active_always_hosts, active_scheduled_hosts = runtime.build_active_hosts(lists, settings, activity)
   local compiled_rules = rules.compile_active_rules(
     active_always_hosts,
@@ -72,11 +105,8 @@ function M.apply_mode(context, options)
     return false, adguard_error
   end
 
-  local curfew_enabled = activity.overnight_active or activity.saturday_blockout_active
-  local previous_firewall = firewall.capture_snapshot(context)
-  local desired_firewall = firewall.desired_snapshot(curfew_enabled)
-  if not firewall.snapshots_equal(previous_firewall, desired_firewall) then
-    local firewall_ok, firewall_error = firewall.commit_snapshot(context, desired_firewall)
+  if not firewall_first then
+    local firewall_ok, firewall_result = reconcile_firewall(context, activity)
     if not firewall_ok then
       local rollback_errors = {}
 
@@ -87,16 +117,16 @@ function M.apply_mode(context, options)
         end
       end
 
-      local firewall_restore_ok, firewall_restore_error = firewall.commit_snapshot(context, previous_firewall)
+      local firewall_restore_ok, firewall_restore_error = firewall.commit_snapshot(context, firewall_result.previous)
       if not firewall_restore_ok then
         table.insert(rollback_errors, firewall_restore_error)
       end
 
       if #rollback_errors == 0 then
-        return false, firewall_error .. " Previous state was restored."
+        return false, firewall_result.error .. " Previous state was restored."
       end
 
-      return false, firewall_error .. " Rollback issues: " .. table.concat(rollback_errors, " | ")
+      return false, firewall_result.error .. " Rollback issues: " .. table.concat(rollback_errors, " | ")
     end
   end
 
