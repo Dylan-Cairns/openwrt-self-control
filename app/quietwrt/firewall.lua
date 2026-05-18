@@ -143,4 +143,8 @@ function M.commit_snapshot(context, snapshot)
   return false, "Firewall update failed while running: " .. failed_command
 end
 
+function M.clear_managed(context)
+  return M.commit_snapshot(context, {})
+end
+
 return M

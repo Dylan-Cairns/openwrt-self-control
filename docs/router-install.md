@@ -64,7 +64,7 @@ It then:
 - creates or validates the canonical QuietWrt files in `/etc/quietwrt/`
 - writes persistent toggle state in UCI under `quietwrt.settings.*`
 - installs the managed cron block
-- enables the QuietWrt boot sync init script
+- enables the QuietWrt boot check and sync init script
 - installs or refreshes the managed firewall sections
 - applies the current schedule state immediately
 
@@ -144,7 +144,35 @@ QuietWrt reconciles state in three ways:
 
 The Saturday blockout relies on the recurring `10` minute backstop instead of adding day-specific cron entries, so start/end changes around midnight can drift by up to about `10` minutes.
 
-## 7. Managed Router State
+State-changing operations are serialized with a router-side lock at `/tmp/quietwrt.lock`. This keeps overlapping cron, boot, web, and CLI actions from applying state at the same time.
+
+Sync reconciles the full-internet curfew firewall rule before touching AdGuard Home, so an unreadable AdGuard config cannot keep a stale Saturday or overnight curfew enabled.
+
+## 7. Boot Failsafe
+
+Before boot sync, QuietWrt runs:
+
+```sh
+/usr/bin/quietwrtctl boot-check
+```
+
+The boot check validates QuietWrt-owned control-plane state:
+
+- AdGuard Home config is readable
+- QuietWrt UCI settings are valid
+- canonical list files exist and parse
+
+If those checks fail, QuietWrt enters failsafe-open mode. It removes the managed firewall sections, disables all QuietWrt toggles, clears QuietWrt blocking rules from AdGuard Home when the AdGuard config is readable, and writes:
+
+```text
+/etc/quietwrt/failsafe-open.txt
+```
+
+Failsafe-open is for corrupt or unreadable QuietWrt state only. A normal reboot during a valid Saturday blockout or overnight lockout does not disable restrictions.
+
+While the marker exists, normal sync keeps QuietWrt firewall restrictions removed instead of recreating them. A successful install/update or a healthy later boot check clears the marker.
+
+## 8. Managed Router State
 
 Canonical QuietWrt data lives here:
 
@@ -153,6 +181,7 @@ Canonical QuietWrt data lives here:
 - `/etc/quietwrt/after-work-blocked.txt`
 - `/etc/quietwrt/password-vault-blocked.txt`
 - `/etc/quietwrt/passthrough-rules.txt`
+- `/etc/quietwrt/failsafe-open.txt`
 
 QuietWrt-managed firewall sections are:
 
@@ -178,7 +207,7 @@ QuietWrt UCI state lives under:
 - `quietwrt.settings.overnight_end`
 - `quietwrt.settings.schema_version`
 
-## 8. Manual List Editing
+## 9. Manual List Editing
 
 You can edit the canonical files directly on the router, then run:
 
@@ -201,7 +230,7 @@ The local web page is append-only by design:
 - it cannot disable enforcement
 - it cannot disable blocklists or lockouts
 
-## 9. Verify A Working Install
+## 10. Verify A Working Install
 
 After install, confirm:
 
@@ -215,12 +244,13 @@ After install, confirm:
 8. direct client DNS on `53` is intercepted
 9. direct `DoT` on `853` is blocked
 
-## 10. Direct Router Commands
+## 11. Direct Router Commands
 
 Useful direct commands:
 
 ```sh
 /usr/bin/quietwrtctl install
+/usr/bin/quietwrtctl boot-check
 /usr/bin/quietwrtctl sync
 /usr/bin/quietwrtctl status
 /usr/bin/quietwrtctl status --json
@@ -245,5 +275,6 @@ Useful direct commands:
 /usr/bin/quietwrtctl restore --after-work /path/to/quietwrt-after-work-YYYY-MM-DD-HHMMSS.txt
 /usr/bin/quietwrtctl restore --password-vault /path/to/quietwrt-password-vault-YYYY-MM-DD-HHMMSS.txt
 cat /tmp/quietwrt-adguard-restart.log
+cat /tmp/quietwrt-boot-check.log
 cat /tmp/quietwrt-boot-sync.log
 ```

@@ -28,7 +28,9 @@ You can change the `workday`, `after work`, `password vault`, and `overnight` wi
 - QuietWrt stores canonical list files in `/etc/quietwrt/`
 - firewall rules reduce DNS bypass and enforce the nightly curfew
 - the same curfew firewall rule is reused for the optional Saturday blockout
-- a boot-time sync plus recurring sync jobs keep policy aligned after reboot and across schedule transitions
+- a boot-time health check, boot-time sync, and recurring sync jobs keep policy aligned after reboot and across schedule transitions
+- state-changing operations use a router-side lock and safe file replacement so overlapping cron, boot, web, or CLI actions do not corrupt managed state
+- if QuietWrt detects corrupt control-plane state at boot, it enters failsafe-open mode, removes QuietWrt firewall restrictions, disables QuietWrt toggles, and writes `/etc/quietwrt/failsafe-open.txt`
 - a small LAN page can append new entries to any scheduled blocklist and enable disabled restrictions
 - a Windows PowerShell CLI installs, updates, toggles, edits schedule windows, backs up, and restores QuietWrt over SSH
 

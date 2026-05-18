@@ -87,6 +87,7 @@ function M.default_paths()
     restart_cron_command = "/etc/init.d/cron restart >/tmp/quietwrt-cron-restart.log 2>&1",
     restart_firewall_command = "/etc/init.d/firewall restart >/tmp/quietwrt-firewall-restart.log 2>&1",
     lock_dir = "/tmp/quietwrt.lock",
+    failsafe_marker_path = data_dir .. "/failsafe-open.txt",
   }
 end
 

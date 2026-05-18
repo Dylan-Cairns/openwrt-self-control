@@ -18,6 +18,9 @@ end
 
 function M.render_text(snapshot)
   local schedule_snapshot = snapshot.schedule or {}
+  local failsafe = snapshot.failsafe or {
+    active = false,
+  }
   local lines = {
     "Installed: " .. (snapshot.installed and "yes" or "no"),
     "Router time: " .. (snapshot.router_time or "Unknown"),
@@ -51,6 +54,13 @@ function M.render_text(snapshot)
     "DoT block hardening: " .. (snapshot.hardening.dot_block and "yes" or "no"),
     "Overnight rule present: " .. (snapshot.hardening.overnight_rule and "yes" or "no"),
   }
+
+  if failsafe.active then
+    table.insert(lines, "Failsafe open: yes")
+    table.insert(lines, "Failsafe reason: " .. tostring(failsafe.reason or "Unknown"))
+  else
+    table.insert(lines, "Failsafe open: no")
+  end
 
   if #snapshot.warnings > 0 then
     table.insert(lines, "Warnings: " .. table.concat(snapshot.warnings, " | "))
@@ -90,6 +100,9 @@ function M.render_json(snapshot)
     active_rule_count = snapshot.active_rule_count,
     hardening = snapshot.hardening,
     warnings = snapshot.warnings,
+    failsafe = snapshot.failsafe or {
+      active = false,
+    },
   })
 end
 

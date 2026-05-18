@@ -3,6 +3,7 @@ local archive_ops = require("quietwrt.archive_ops")
 local context_helpers = require("quietwrt.context")
 local install_ops = require("quietwrt.install_ops")
 local list_ops = require("quietwrt.list_ops")
+local recovery = require("quietwrt.recovery")
 local settings_ops = require("quietwrt.settings_ops")
 local status_ops = require("quietwrt.status_ops")
 
@@ -31,6 +32,16 @@ end
 
 function M.apply_current_mode(context)
   return locked(context, function()
+    local failsafe = recovery.read_marker(context)
+    if failsafe.active then
+      local firewall_ok, firewall_error = recovery.enter_failsafe_open(context, failsafe.reason)
+      if not firewall_ok then
+        return false, firewall_error
+      end
+
+      return false, "QuietWrt is in failsafe-open mode: " .. failsafe.reason
+    end
+
     return apply_engine.apply_mode(context, {
       require_installed = true,
       firewall_first = true,
@@ -50,7 +61,18 @@ end
 
 function M.install(context)
   return locked(context, function()
-    return install_ops.install(context)
+    local ok, result = install_ops.install(context)
+    if ok then
+      recovery.clear_marker(context)
+    end
+
+    return ok, result
+  end)
+end
+
+function M.boot_check(context)
+  return locked(context, function()
+    return recovery.boot_check(context)
   end)
 end
 

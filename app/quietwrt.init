@@ -6,6 +6,8 @@ start() {
   [ -x /usr/bin/quietwrtctl ] || return 0
   (
     sleep 15
-    /usr/bin/quietwrtctl sync >/tmp/quietwrt-boot-sync.log 2>&1
+    if /usr/bin/quietwrtctl boot-check >/tmp/quietwrt-boot-check.log 2>&1; then
+      /usr/bin/quietwrtctl sync >/tmp/quietwrt-boot-sync.log 2>&1
+    fi
   ) &
 }

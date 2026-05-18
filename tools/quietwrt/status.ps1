@@ -37,6 +37,10 @@ function New-QuietWrtStatusPlaceholder {
             overnight_rule = $false
         }
         warnings = @()
+        failsafe = [pscustomobject]@{
+            active = $false
+            reason = $null
+        }
     }
 }
 
@@ -149,6 +153,11 @@ function Complete-QuietWrtStatus {
         $merged.warnings = @($warningsProperty.Value)
     } else {
         $merged.warnings = @()
+    }
+
+    $failsafeProperty = $Status.PSObject.Properties['failsafe']
+    if ($failsafeProperty -and $failsafeProperty.Value) {
+        $merged.failsafe = $failsafeProperty.Value
     }
 
     return $merged

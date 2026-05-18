@@ -27,6 +27,10 @@ function M.install(context)
   return operations.install(context)
 end
 
+function M.boot_check(context)
+  return operations.boot_check(context)
+end
+
 function M.set_toggle(context, toggle_name, enabled)
   return operations.set_toggle(context, toggle_name, enabled)
 end

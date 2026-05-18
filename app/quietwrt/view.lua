@@ -243,6 +243,25 @@ local function render_banner(load_error, banner, banner_kind)
   return ""
 end
 
+local function render_state_warnings(warnings, failsafe)
+  local parts = {}
+
+  if failsafe and failsafe.active then
+    table.insert(
+      parts,
+      '<div class="banner error">QuietWrt entered failsafe-open mode: '
+        .. util.html_escape(failsafe.reason or "Unknown failure.")
+        .. "</div>\n"
+    )
+  end
+
+  for _, warning in ipairs(warnings or {}) do
+    table.insert(parts, '<div class="banner warning">' .. util.html_escape(warning) .. "</div>\n")
+  end
+
+  return table.concat(parts)
+end
+
 local function render_list_kind_options()
   local parts = {}
 
@@ -478,6 +497,7 @@ function M.render_page(script_name, state)
 </section>
 ]],
     render_banner(state.load_error, banner, banner_kind),
+    render_state_warnings(state.warnings, state.failsafe),
     render_add_entry_form(script_name),
     render_import_form(script_name),
     [[<section class="grid">

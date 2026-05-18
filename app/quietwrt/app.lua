@@ -158,6 +158,8 @@ function M.run_cgi(options)
     overnight_active = state and state.overnight_active,
     saturday_blockout_active = state and state.saturday_blockout_active,
     schedule = state and state.schedule or {},
+    warnings = state and state.warnings or {},
+    failsafe = state and state.failsafe or { active = false },
     always_hosts = state and state.always_hosts or {},
     workday_hosts = state and state.workday_hosts or {},
     after_work_hosts = state and state.after_work_hosts or {},
@@ -173,6 +175,7 @@ Usage: quietwrtctl <command>
 
 Commands:
   install   Bootstrap list files, install cron sync, and apply the current schedule state.
+  boot-check Validate QuietWrt state at boot; enter failsafe-open if state is corrupt.
   sync      Rebuild AdGuard rules for the current time and update curfew firewall state.
   apply     Alias for sync.
   status    Show current list counts and schedule state. Use --json for machine-readable output.
@@ -233,6 +236,22 @@ function M.run_cli(argv, options)
       return 1
     end
     io.write("Installed QuietWrt. Active rules: ", tostring(result.active_rule_count), "\n")
+    return 0
+  end
+
+  if command == "boot-check" then
+    local ok, result = service.boot_check(context)
+    if not ok then
+      io.stderr:write(result, "\n")
+      return 1
+    end
+
+    if result.failsafe_open then
+      io.stderr:write("QuietWrt entered failsafe-open mode: ", tostring(result.reason), "\n")
+      return 2
+    end
+
+    io.write("QuietWrt boot check passed.\n")
     return 0
   end
 

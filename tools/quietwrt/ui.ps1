@@ -51,6 +51,18 @@ function Show-QuietWrtStatus {
     Write-Host "  DoT blocking hardening: $(if ($Status.hardening.dot_block) { 'yes' } else { 'no' })"
     Write-Host "  Overnight firewall rule present: $(if ($Status.hardening.overnight_rule) { 'yes' } else { 'no' })"
 
+    $failsafe = if ($Status.PSObject.Properties['failsafe']) { $Status.failsafe } else { $null }
+    if ($failsafe -and $failsafe.PSObject.Properties['active'] -and [bool]$failsafe.active) {
+        $reason = if ($failsafe.PSObject.Properties['reason'] -and -not [string]::IsNullOrWhiteSpace([string]$failsafe.reason)) {
+            [string]$failsafe.reason
+        } else {
+            'Unknown failure.'
+        }
+        Write-Warning "Failsafe-open mode is active: $reason"
+    } else {
+        Write-Host '  Failsafe open: no'
+    }
+
     foreach ($warning in @($Status.warnings)) {
         Write-Warning $warning
     }

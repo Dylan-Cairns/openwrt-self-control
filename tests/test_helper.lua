@@ -183,6 +183,7 @@ function M.make_context(overrides)
     restart_cron_command = "restart-cron",
     restart_firewall_command = "restart-firewall",
     lock_dir = M.join_path(root, "quietwrt.lock"),
+    failsafe_marker_path = M.join_path(data_dir, "failsafe-open.txt"),
   }
 
   assert(M.create_dirs({

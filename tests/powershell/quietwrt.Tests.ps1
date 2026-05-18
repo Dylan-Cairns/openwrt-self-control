@@ -103,7 +103,7 @@ Describe 'QuietWrt PowerShell CLI' {
         Mock Invoke-QuietWrtRemote {
             [pscustomobject]@{
                 ExitStatus = 0
-                Output = '{"schema_version":"4","installed":true,"router_time":"21:05","protection_enabled":true,"enforcement_ready":true,"always_enabled":true,"workday_enabled":true,"after_work_enabled":true,"password_vault_enabled":true,"overnight_enabled":false,"saturday_blockout_enabled":true,"saturday_blockout_active":true,"always_count":1,"workday_count":2,"after_work_count":3,"password_vault_count":4,"active_rule_count":10,"schedule":{"after_work":{"start":"1630","end":"1900","display_start":"16:30","display_end":"19:00","overnight":false,"label":"After work","summary":"16:30 to 19:00"}},"hardening":{"dns_intercept":true,"dot_block":true,"overnight_rule":false},"warnings":[]}'
+                Output = '{"schema_version":"4","installed":true,"router_time":"21:05","protection_enabled":true,"enforcement_ready":true,"always_enabled":true,"workday_enabled":true,"after_work_enabled":true,"password_vault_enabled":true,"overnight_enabled":false,"saturday_blockout_enabled":true,"saturday_blockout_active":true,"always_count":1,"workday_count":2,"after_work_count":3,"password_vault_count":4,"active_rule_count":10,"schedule":{"after_work":{"start":"1630","end":"1900","display_start":"16:30","display_end":"19:00","overnight":false,"label":"After work","summary":"16:30 to 19:00"}},"hardening":{"dns_intercept":true,"dot_block":true,"overnight_rule":false},"warnings":[],"failsafe":{"active":true,"reason":"Could not read config."}}'
                 Raw = $null
             }
         }
@@ -118,6 +118,8 @@ Describe 'QuietWrt PowerShell CLI' {
         $status.schedule.after_work.summary | Should Be '16:30 to 19:00'
         $status.schedule.workday | Should Be $null
         $status.schedule.password_vault | Should Be $null
+        $status.failsafe.active | Should Be $true
+        $status.failsafe.reason | Should Be 'Could not read config.'
     }
 
     It 'throws when quietwrtctl status returns invalid json' {
